@@ -1,0 +1,15 @@
+{
+  "example_only": true,
+  "candidate_id": "example-glossary-rule",
+  "canonical": "腓立比",
+  "misrecognitions": ["腓力比"],
+  "source_id": "example-source",
+  "rights_status": "pending",
+  "review_status": "pending",
+  "intended_context": "教會用語評估",
+  "positive_cases": [{"raw": "腓力比書", "expected": "腓立比書"}],
+  "negative_cases": [],
+  "baseline_glossary_sha256": null,
+  "evaluation_run_id": null,
+  "decision": "pending"
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "example_only": true,
+  "run_id": "replace-with-real-run-id",
+  "status": "planned",
+  "started_at": null,
+  "finished_at": null,
+  "code_commit": null,
+  "dataset": {"manifest": null, "sha256": null, "split": "validation", "sample_count": null, "duration_seconds": null},
+  "baseline": {"recognizer": "browser-speechrecognition", "revision": "unknown", "glossary_sha256": null},
+  "candidate": {"recognizer": null, "revision": null, "glossary_sha256": null},
+  "normalizer_version": null,
+  "metric_version": null,
+  "runtime": {"browser": null, "provider": "unknown", "hardware": null, "tool_versions": {}},
+  "thresholds": {"cer": null, "term_accuracy": null, "false_correction_rate": null, "final_latency_p95_ms": null, "rtf": null},
+  "results": {"baseline": null, "candidate": null, "cohorts": []},
+  "test_used_for_tuning": false,
+  "check_outcome": "unrun",
+  "exit_code": null,
+  "artifacts": [],
+  "usage": {"tokens": null, "wall_seconds": null, "cost": null, "currency": null, "metadata_source": "unavailable"},
+  "decision": "pending"
+}

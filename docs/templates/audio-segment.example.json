@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "example_only": true,
+  "segment_id": "example-segment-001",
+  "source": {"source_id": "example-source", "uri": null, "version": null, "retrieved_at": null},
+  "rights": {"status": "pending", "license": null, "evidence_ref": null, "consent_status": "pending", "allowed_uses": [], "retention_until": null},
+  "audio": {"raw_path": "data/raw/example.wav", "processed_path": null, "raw_sha256": null, "processed_sha256": null, "sample_rate_hz": null, "channels": null, "duration_seconds": null, "start_seconds": null, "end_seconds": null},
+  "reference": {"raw_text": null, "normalized_text": null, "status": "pending", "normalizer_version": null},
+  "language": "zh-TW",
+  "session_id": "example-session",
+  "speaker_id": "pseudonymous-example-speaker",
+  "group_id": "example-session",
+  "split": "unassigned",
+  "transform": {"tool": null, "version": null, "parameters": {}},
+  "cohorts": ["church-terms"],
+  "excluded_reason": null
+}

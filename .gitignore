@@ -4,3 +4,9 @@ node_modules/
 coverage/
 .cloudflare-assets/
 .wrangler/
+
+# Private datasets, experiment artifacts and model weights
+/data/
+/artifacts/
+/models/
+/.venv/

@@ -1,0 +1,2 @@
+source_id,uri,source_version,media_type,rights_status,license,evidence_ref,consent_status,allowed_uses,acquisition_method,retrieved_at,retention_until,notes
+example-source,,,audio,pending,,,pending,,not_acquired,,,Example only; replace with reviewed source metadata before acquisition

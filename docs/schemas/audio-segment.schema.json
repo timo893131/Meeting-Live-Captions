@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:meeting-live-captions:audio-segment:1.0",
+  "title": "Audio segment manifest v1",
+  "description": "Metadata structure only. Independently validate assets, hashes, rights, alignment, references and split leakage.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "example_only", "segment_id", "source", "rights", "audio", "reference", "language", "session_id", "speaker_id", "group_id", "split", "transform", "cohorts", "excluded_reason"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "example_only": {"type": "boolean"},
+    "segment_id": {"type": "string", "minLength": 1},
+    "source": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_id", "uri", "version", "retrieved_at"],
+      "properties": {"source_id": {"type": "string", "minLength": 1}, "uri": {"$ref": "#/$defs/nullableText"}, "version": {"$ref": "#/$defs/nullableText"}, "retrieved_at": {"$ref": "#/$defs/nullableDateTime"}}
+    },
+    "rights": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "license", "evidence_ref", "consent_status", "allowed_uses", "retention_until"],
+      "properties": {
+        "status": {"enum": ["pending", "approved", "restricted", "denied"]},
+        "license": {"$ref": "#/$defs/nullableText"}, "evidence_ref": {"$ref": "#/$defs/nullableText"},
+        "consent_status": {"enum": ["pending", "granted", "not_required_with_basis", "denied"]},
+        "allowed_uses": {"type": "array", "uniqueItems": true, "items": {"enum": ["vocabulary", "transcription", "internal_evaluation", "training", "publication"]}},
+        "retention_until": {"$ref": "#/$defs/nullableDateTime"}
+      }
+    },
+    "audio": {
+      "type": "object", "additionalProperties": false,
+      "required": ["raw_path", "processed_path", "raw_sha256", "processed_sha256", "sample_rate_hz", "channels", "duration_seconds", "start_seconds", "end_seconds"],
+      "properties": {
+        "raw_path": {"type": "string", "minLength": 1}, "processed_path": {"$ref": "#/$defs/nullableText"},
+        "raw_sha256": {"$ref": "#/$defs/hash"}, "processed_sha256": {"$ref": "#/$defs/hash"},
+        "sample_rate_hz": {"type": ["integer", "null"], "minimum": 1}, "channels": {"type": ["integer", "null"], "minimum": 1},
+        "duration_seconds": {"type": ["number", "null"], "exclusiveMinimum": 0},
+        "start_seconds": {"type": ["number", "null"], "minimum": 0}, "end_seconds": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "reference": {
+      "type": "object", "additionalProperties": false,
+      "required": ["raw_text", "normalized_text", "status", "normalizer_version"],
+      "properties": {"raw_text": {"$ref": "#/$defs/nullableText"}, "normalized_text": {"$ref": "#/$defs/nullableText"}, "status": {"enum": ["pending", "machine_generated", "human_verified"]}, "normalizer_version": {"$ref": "#/$defs/nullableText"}}
+    },
+    "language": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "minLength": 1}, "speaker_id": {"$ref": "#/$defs/nullableText"}, "group_id": {"type": "string", "minLength": 1},
+    "split": {"enum": ["unassigned", "train", "validation", "sealed_test"]},
+    "transform": {
+      "type": "object", "additionalProperties": false, "required": ["tool", "version", "parameters"],
+      "properties": {"tool": {"$ref": "#/$defs/nullableText"}, "version": {"$ref": "#/$defs/nullableText"}, "parameters": {"type": "object"}}
+    },
+    "cohorts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "excluded_reason": {"$ref": "#/$defs/nullableText"}
+  },
+  "$defs": {
+    "nullableText": {"type": ["string", "null"]},
+    "nullableDateTime": {"type": ["string", "null"], "format": "date-time"},
+    "hash": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+  }
+}
