@@ -63,7 +63,7 @@ export function createApp() {
       let msg; try {msg=JSON.parse(raw.toString());} catch {return ws.close(1008);}
       if (!msg || typeof msg !== 'object') return ws.close(1008);
       if (!joined) {
-        if (limited('auth:'+req.socket.remoteAddress,30)) return ws.close(1008,'嘗試太頻繁');
+        if (limited('auth:'+req.socket.remoteAddress,300)) return ws.close(1008,'嘗試太頻繁');
         const room=rooms.get(msg.room);
         if (!room || msg.type !== 'join') return ws.close(1008,'房間或密碼錯誤');
         if (msg.role === 'host' && msg.token === room.hostToken) {

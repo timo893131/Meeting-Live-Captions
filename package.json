@@ -1,1 +1,27 @@
-{"name":"meeting-live-captions","version":"0.1.0","private":true,"type":"module","engines":{"node":">=22"},"scripts":{"start":"node server.js","dev":"node --watch server.js","test":"node --test"},"dependencies":{"express":"^5.1.0","qrcode":"^1.5.4","ws":"^8.18.3"}}
+{
+  "name": "meeting-live-captions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "build:assets": "node scripts/build-assets.mjs",
+    "dev:cloudflare": "npm run build:assets && wrangler dev --local",
+    "deploy": "npm run build:assets && wrangler deploy",
+    "check:cloudflare": "npm run build:assets && wrangler deploy --dry-run",
+    "test:cloudflare": "node --test scripts/smoke-cloudflare.mjs"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "wrangler": "^4.149.0"
+  }
+}

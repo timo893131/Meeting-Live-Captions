@@ -23,7 +23,7 @@ function start(){
 function disconnect(){generation++;clearTimeout(reconnectTimer);socket?.close();socket=null;}
 function connect(role){
  const current=generation;
- socket=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host);
+ socket=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws?room='+encodeURIComponent(room.id));
  const ws=socket;status('連線中');
  ws.onopen=()=>ws.send(JSON.stringify({type:'join',room:room.id,role,token:role==='host'?room.hostToken:undefined,password:role==='viewer'?room.password:undefined,invite:role==='viewer'?room.invite:undefined}));
  ws.onmessage=event=>{if(current!==generation)return;const msg=JSON.parse(event.data);if(msg.type==='ready'){entries=msg.history;render();$('interim').textContent=msg.interim;status(role==='host'?'房間已連線':msg.hostOnline?'等待字幕':'房主暫時離線');message('');}
