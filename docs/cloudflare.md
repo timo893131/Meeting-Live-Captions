@@ -17,6 +17,10 @@ Cloudflare 官方目前提供 Workers Free 的 SQLite Durable Objects，但仍�
 
 這個連結是部署入口，不是已部署的字幕網站。等 Cloudflare 顯示部署成功後，使用它提供的實際 HTTPS 網址試用。
 
+## 目前正式部署目標
+
+使用者已確認正式站連接原始 `timo893131/Meeting-Live-Captions`。正式網址為 `https://meeting-live-captions.livecap-worker.workers.dev`，Worker 名稱為 `meeting-live-captions`。推送 `main` 後需以正式站實際回應確認新版本，不能只依推送成功推定建置完成。
+
 ## 用 Cloudflare 後台部署
 
 1. 登入你的 Cloudflare 帳號，在 Workers & Pages 中建立 **Worker**，選擇從 GitHub 匯入專案。
@@ -65,6 +69,12 @@ export XDG_CACHE_HOME=/workspace/.cloudflare/cache
 export WRANGLER_SEND_METRICS=false
 ```
 
+## UI／現場穩定性回歸
+
+`npm run test:ui` 會自行啟動 Node 服務及 Chromium，測試字幕／收音／加入與重連的瀏覽器流程。先執行 `npx playwright install chromium`，或在有系統 Chromium 的環境設定 `CHROMIUM_PATH`。另對本機 Workers 執行 `npm run test:cloudflare`，兩種 runtime 的證據需分開。
+
+房間憑證暫存在同頁籤 sessionStorage，允許重新整理後恢復尚未到期的房間；跨裝置及關閉頁籤後不保證恢復。網路中斷後最多自動重試五次，之後提供手動重連或重新加入。恢復房間不會自動重新開麥克風，請由房主確認後按開始收音。共享裝置離開時結束房間並關閉頁籤。
+
 ## 上線後的人工試用
 
 1. 在桌面版 Chrome 開啟實際 HTTPS 網址。
@@ -73,6 +83,9 @@ export WRANGLER_SEND_METRICS=false
 4. 選廣播模式，在另一台裝置掃描 QR Code，確認不用密碼即可觀看。
 5. 再用另一個瀏覽器輸入房間代碼與密碼，確認同樣可以加入，錯誤密碼不能加入。
 6. 房主說話，確認暫定與確定字幕都會同步；房主結束房間，確認觀看端顯示已結束。
+7. 重新整理房主／觀看頁面，確認同一房間及字幕歷史恢復，麥克風不會自動開啟。
+8. 捲動閱讀較早字幕，確認新字幕不會拉動閱讀位置；用「回到最新字幕」恢復追蹤。
+9. 中斷再恢復網路，確認房間重連、收音仍停止；在支援的瀏覽器測試保持螢幕亮起。
 
 瀏覽器模擬测试使用模擬的辨識事件，驗證的是字幕程式流程，不是麥克風或辨識服務準確率。真正的語音測試仍需上述人工步驟。
 

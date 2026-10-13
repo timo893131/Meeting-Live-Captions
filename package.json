@@ -15,7 +15,8 @@
     "deploy": "npm run build:assets && wrangler deploy",
     "check:cloudflare": "npm run build:assets && wrangler deploy --dry-run",
     "test:cloudflare": "node --test scripts/smoke-cloudflare.mjs",
-    "build": "npm run build:assets"
+    "build": "npm run build:assets",
+    "test:ui": "node --test scripts/ui-smoke.mjs"
   },
   "dependencies": {
     "express": "^5.1.0",
@@ -23,6 +24,7 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "wrangler": "^4.149.0"
   },
   "cloudflare": {
