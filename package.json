@@ -14,7 +14,8 @@
     "dev:cloudflare": "npm run build:assets && wrangler dev --local",
     "deploy": "npm run build:assets && wrangler deploy",
     "check:cloudflare": "npm run build:assets && wrangler deploy --dry-run",
-    "test:cloudflare": "node --test scripts/smoke-cloudflare.mjs"
+    "test:cloudflare": "node --test scripts/smoke-cloudflare.mjs",
+    "build": "npm run build:assets"
   },
   "dependencies": {
     "express": "^5.1.0",
@@ -23,5 +24,15 @@
   },
   "devDependencies": {
     "wrangler": "^4.149.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "ROOMS": {
+        "description": "每個字幕房間的 WebSocket 連線、權限與最近字幕；使用支援免費方案的 SQLite Durable Objects。"
+      },
+      "CREATE_LIMIT": {
+        "description": "建立房間的請求限流，避免大量建立房間。"
+      }
+    }
   }
 }

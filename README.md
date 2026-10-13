@@ -1,5 +1,7 @@
 # 聚會字幕 · Meeting Live Captions
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/timo893131/Meeting-Live-Captions)
+
 給教會聚會使用的即時字幕網頁，第一版以繁體中文／國語為主。
 
 ## 功能

@@ -7,7 +7,17 @@ Cloudflare 官方目前提供 Workers Free 的 SQLite Durable Objects，但仍�
 - [Durable Objects 免費方案與價格](https://developers.cloudflare.com/durable-objects/platform/pricing/)
 - [WebSocket Hibernation](https://developers.cloudflare.com/durable-objects/best-practices/websockets/)
 
-## 用 Cloudflare 後台部署（建議）
+## 一鍵部署
+
+[開啟 Cloudflare 官方部署頁](https://deploy.workers.cloudflare.com/?url=https://github.com/timo893131/Meeting-Live-Captions)
+
+在已登入的瀏覽器開啟連結，選擇 Cloudflare 帳號、授權 GitHub，確認 Worker 與新儲存庫名稱後部署。Cloudflare 會將公開專案複製至你選擇的 GitHub 帳號，偵測 package.json 中的 build／deploy scripts，並建立設定檔中的 Durable Objects。若原本的儲存庫名稱已存在，請為部署副本選擇不同名稱，例如 `meeting-live-captions-deploy`。不要覆蓋帳號內已有的其他 Worker。
+
+一鍵部署產生的是儲存庫副本。若希望持續追蹤原始 `timo893131/Meeting-Live-Captions` 的 main 更新，請改用下一節的後台匯入方式連接原儲存庫。
+
+這個連結是部署入口，不是已部署的字幕網站。等 Cloudflare 顯示部署成功後，使用它提供的實際 HTTPS 網址試用。
+
+## 用 Cloudflare 後台部署
 
 1. 登入你的 Cloudflare 帳號，在 Workers & Pages 中建立 **Worker**，選擇從 GitHub 匯入專案。
 2. 授權存取 `timo893131/Meeting-Live-Captions`，選擇 `main`。
