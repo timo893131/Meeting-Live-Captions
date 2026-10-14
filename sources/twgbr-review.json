@@ -6,7 +6,7 @@
   ],
   "user_agent": "Meeting-Live-Captions-Source-Review/0.1",
   "limits": {
-    "max_seed_pages": 2,
+    "max_seed_pages": 4,
     "max_bytes_per_response": 1000000,
     "timeout_seconds": 20,
     "minimum_interval_seconds": 1,
@@ -16,7 +16,7 @@
     {
       "source_id": "twgbr-recoveryversion-seed",
       "seed_url": "https://line.twgbr.org/recoveryversion/bible/01.html",
-      "source_type": "text_page_to_verify",
+      "source_type": "bible_book_page_verified_genesis",
       "rights_status": "pending",
       "license": null,
       "evidence_ref": null,
@@ -25,11 +25,31 @@
     {
       "source_id": "twgbr-life-study-seed",
       "seed_url": "https://line.twgbr.org/life-study/",
-      "source_type": "index_page_to_verify",
+      "source_type": "life_study_index_verified",
+      "rights_status": "pending",
+      "license": null,
+      "evidence_ref": null,
+      "allowed_uses": []
+    },
+    {
+      "source_id": "twgbr-life-study-book-1",
+      "seed_url": "https://line.twgbr.org/life-study/1.html",
+      "source_type": "life_study_message_verified_genesis_sample",
+      "rights_status": "pending",
+      "license": null,
+      "evidence_ref": null,
+      "allowed_uses": []
+    },
+    {
+      "source_id": "twgbr-life-study-book-1-message-2",
+      "seed_url": "https://line.twgbr.org/life-study/1_2.html",
+      "source_type": "life_study_message_verified_genesis_sample",
       "rights_status": "pending",
       "license": null,
       "evidence_ref": null,
       "allowed_uses": []
     }
-  ]
+  ],
+  "requested_work": "source_inventory_and_technical_checks",
+  "training_authorization": "not_obtained_user_confirmed"
 }
