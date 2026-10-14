@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0",
+  "phase": "source_review_only",
+  "allowed_hosts": [
+    "line.twgbr.org"
+  ],
+  "user_agent": "Meeting-Live-Captions-Source-Review/0.1",
+  "limits": {
+    "max_seed_pages": 2,
+    "max_bytes_per_response": 1000000,
+    "timeout_seconds": 20,
+    "minimum_interval_seconds": 1,
+    "max_requests": 6
+  },
+  "sources": [
+    {
+      "source_id": "twgbr-recoveryversion-seed",
+      "seed_url": "https://line.twgbr.org/recoveryversion/bible/01.html",
+      "source_type": "text_page_to_verify",
+      "rights_status": "pending",
+      "license": null,
+      "evidence_ref": null,
+      "allowed_uses": []
+    },
+    {
+      "source_id": "twgbr-life-study-seed",
+      "seed_url": "https://line.twgbr.org/life-study/",
+      "source_type": "index_page_to_verify",
+      "rights_status": "pending",
+      "license": null,
+      "evidence_ref": null,
+      "allowed_uses": []
+    }
+  ]
+}

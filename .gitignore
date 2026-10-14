@@ -10,3 +10,7 @@ coverage/
 /artifacts/
 /models/
 /.venv/
+
+# Python source-review helpers
+__pycache__/
+*.py[cod]

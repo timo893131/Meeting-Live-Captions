@@ -26,3 +26,5 @@ description: 蒐集或爬取聖經詞彙、講道文字、授權音檔與教會�
 - 完成後交給 speech-data-preparation；若只有詞彙文字，不稱之為 ASR 音訊訓練集。
 
 按需參考：[資料規則](../../../docs/workflow.md)、[來源登錄](../../../docs/templates/source-register.example.csv)、[manifest 範例](../../../docs/templates/audio-segment.example.json)、[schema](../../../docs/schemas/audio-segment.schema.json)。
+
+指定 TWGBR 資源時，按需讀 [來源檢查](../../../docs/twgbr-source-review.md)，使用 `python scripts/review_sources.py` 先做有限 seed 檢查；此工具不會遞迴爬取或核准訓練權利。
