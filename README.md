@@ -95,3 +95,5 @@ npm run test:ui
 若系統已裝 Chromium，可用 `CHROMIUM_PATH=/usr/bin/chromium npm run test:ui`。測試自行啟動本機 Node 服務，涵蓋字幕閱讀、收音事件、權限錯誤、房間加入／恢復、有限重連、長字幕與手機版；語音輸入為模擬事件，不代表真實麥克風或模型準確率。沒有安裝瀏覽器時不要把 UI 測試標為通過。
 
 房間憑證存在同頁籤 sessionStorage，與原本僅在頁面記憶體的行為不同；它不提供跨裝置恢復，也不是帳號系統。共享裝置請結束房間並關閉頁籤，請勿匯出或分享瀏覽器儲存內容。
+
+人工審閱：[教會詞彙清單](docs/glossary-review.md)。真實錄音接入：[manifest 檢查與 split 審計](docs/audio-manifest-check.md)；工具只在本機查核，不會上傳、辨識或訓練。

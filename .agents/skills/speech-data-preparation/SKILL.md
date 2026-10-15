@@ -27,3 +27,5 @@ description: 轉換授權音訊與逐字稿、分段、標註、正規化、去�
 - 對少量與完整選定資料驗證一致性；缺失 metadata 以 null／pending 表示，不能編造 hash 或時間。
 
 按需參考：[manifest schema](../../../docs/schemas/audio-segment.schema.json)、[資料與評估契約](../../../docs/workflow.md)。
+
+本機接入檢查：`node scripts/check-audio-manifest.mjs --manifest <file.jsonl> --root <approved-data-root> --purpose internal_evaluation`。全資料 split 審計改用 `--purpose split_audit`；需新講員隔離時加 `--speaker-disjoint true`。詳細邊界見 [接入說明](../../../docs/audio-manifest-check.md)，通過不能代替授權查核或人工聽稿。
