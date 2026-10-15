@@ -5,6 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
+import wave
 from pathlib import Path
 from unittest.mock import patch
 
@@ -50,6 +51,19 @@ class LocalASRTests(unittest.TestCase):
             self.assertEqual(report['audio_sha256'], module.sha256_file(audio))
             with self.assertRaises(FileExistsError):
                 module.run(args)
+
+    def test_installed_decoder_accepts_audio_with_pinned_av(self):
+        from faster_whisper.audio import decode_audio
+        with tempfile.TemporaryDirectory() as root:
+            file = Path(root)/'sample.wav'
+            with wave.open(str(file), 'wb') as out:
+                out.setnchannels(1)
+                out.setsampwidth(2)
+                out.setframerate(16000)
+                out.writeframes(b'\x00\x00' * 16000)
+            samples = decode_audio(str(file))
+            self.assertEqual(len(samples), 16000)
+            self.assertTrue((samples == 0).all())
 
     def test_missing_local_model_is_not_automatically_downloaded(self):
         with tempfile.TemporaryDirectory() as root:

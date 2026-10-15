@@ -1,5 +1,5 @@
 anyio==4.15.1
-av==19.0.1
+av==16.0.1
 click==8.5.0
 ctranslate2==4.8.3
 faster-whisper==1.2.1
