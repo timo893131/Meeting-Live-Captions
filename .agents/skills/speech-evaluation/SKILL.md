@@ -29,3 +29,5 @@ baseline／candidate 版本、具授權的固定資料 manifest、reference 來�
 按需參考：[指标定義](../../../docs/workflow.md)、[詞彙候選](../../../docs/templates/glossary-candidate.example.json)、[評估報告](../../../docs/templates/evaluation-report.md)、[run metadata](../../../docs/templates/eval-run.example.json)。
 
 現有文字回測工具與限制見 [詞彙回測](../../../docs/glossary-evaluation.md)：`npm run eval:glossary` 比較 21 個人工合成開發案例；`npm run eval:glossary:candidate` 的前綴實驗目前預期失敗，不能因整體分數不變就忽略分組退步。資料及規則位於 evaluation/glossary/，不是 TWGBR 語料或真人 ASR 基準。
+
+本機離線基線另見 [local ASR](../../../docs/local-asr.md)。`scripts/transcribe_audio.py` 只接受本機模型，不用 reference／hotwords 作提示，保存 raw ASR 與 provenance；權重未取得時不能把合成引擎測試當成實際推論通過。

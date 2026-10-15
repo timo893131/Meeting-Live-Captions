@@ -98,4 +98,4 @@ npm run test:ui
 
 人工審閱：[教會詞彙清單](docs/glossary-review.md)。真實錄音接入：[manifest 檢查與 split 審計](docs/audio-manifest-check.md)；工具只在本機查核，不會上傳、辨識或訓練。
 
-目標詞／概念已經使用者確認，核准範圍見 [approved-targets.json](evaluation/glossary/approved-targets.json)。下一階段採用已有且獲准評估的聚會錄音：[錄音盤點與真實回測接軌](docs/meeting-audio-evaluation.md)；目前尚未收到音檔、執行離線辨識或微調。
+目標詞／概念已經使用者確認，核准範圍見 [approved-targets.json](evaluation/glossary/approved-targets.json)。下一階段採用已有且獲准評估的聚會錄音：[錄音盤點與真實回測接軌](docs/meeting-audio-evaluation.md)；已收到首份音檔與待核對文字；[本機辨識準備與網路狀態](docs/local-asr.md)。模型權重下載受環境網路限制，尚未完成實際辨識或微調。
