@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "review": {
+    "status": "target_scope_approved",
+    "reviewed_on": "2026-10-15",
+    "timezone": "Asia/Taipei",
+    "reviewer": "project_owner",
+    "evidence": "使用者確認 docs/glossary-review.md 的『目標詞／概念』：詞我看過了，可以，繼續下一步。",
+    "scope": "Target vocabulary and concepts only; spelling variants, automatic replacements and training rights are not approved by this review."
+  },
+  "provenance": "Manually organized common terms; no TWGBR text or audio extracted.",
+  "automatic_replacements": "not_reviewed",
+  "training_ready": false,
+  "targets": [
+    {"category":"bible_books","terms":["創世記","腓立比書"]},
+    {"category":"biblical_persons","terms":["耶穌","耶穌基督","保羅","亞伯拉罕"]},
+    {"category":"biblical_places","terms":["耶路撒冷","加利利","哥林多"]},
+    {"category":"spiritual_terms","terms":["經綸","那靈","靈","魂","心","重生","救贖"]},
+    {"category":"church_life","terms":["交通","調和","配搭","擘餅","禱告"]},
+    {"category":"responses","terms":["阿們","阿門"]},
+    {"category":"verse_references","terms":["書卷","章","節"]},
+    {"category":"local_names","terms":[],"status":"Await actual private terms and separate permission; no names invented."}
+  ]
+}

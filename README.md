@@ -97,3 +97,5 @@ npm run test:ui
 房間憑證存在同頁籤 sessionStorage，與原本僅在頁面記憶體的行為不同；它不提供跨裝置恢復，也不是帳號系統。共享裝置請結束房間並關閉頁籤，請勿匯出或分享瀏覽器儲存內容。
 
 人工審閱：[教會詞彙清單](docs/glossary-review.md)。真實錄音接入：[manifest 檢查與 split 審計](docs/audio-manifest-check.md)；工具只在本機查核，不會上傳、辨識或訓練。
+
+目標詞／概念已經使用者確認，核准範圍見 [approved-targets.json](evaluation/glossary/approved-targets.json)。下一階段採用已有且獲准評估的聚會錄音：[錄音盤點與真實回測接軌](docs/meeting-audio-evaluation.md)；目前尚未收到音檔、執行離線辨識或微調。
