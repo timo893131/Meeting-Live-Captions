@@ -16,7 +16,9 @@
     "check:cloudflare": "npm run build:assets && wrangler deploy --dry-run",
     "test:cloudflare": "node --test scripts/smoke-cloudflare.mjs",
     "build": "npm run build:assets",
-    "test:ui": "node --test scripts/ui-smoke.mjs"
+    "test:ui": "node --test scripts/ui-smoke.mjs",
+    "eval:glossary": "node scripts/evaluate-glossary.mjs --cases evaluation/glossary/development-cases.json",
+    "eval:glossary:candidate": "node scripts/evaluate-glossary.mjs --cases evaluation/glossary/development-cases.json --candidate evaluation/glossary/context-prefix-experiment.json"
   },
   "dependencies": {
     "express": "^5.1.0",

@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "status": "development_experiment",
+  "baselineSha256": "277afac51e82d69a0a6091ece01b4175bb4a45d0b9c2fa49ef625e095fdea191",
+  "removeSources": [
+    "創世紀"
+  ],
+  "addPairs": [
+    [
+      "讀創世紀",
+      "讀創世記"
+    ],
+    [
+      "創世紀第",
+      "創世記第"
+    ]
+  ],
+  "rationale": "Test whether narrower string prefixes reduce proper-name false corrections. This experiment can miss other Bible contexts.",
+  "autoApply": false,
+  "productionPromotion": "not_evaluated"
+}

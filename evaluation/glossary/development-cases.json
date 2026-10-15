@@ -1,0 +1,313 @@
+{
+  "version": "1.0",
+  "kind": "authored_synthetic_development",
+  "provenance": "Hand-authored examples; no source corpus copied and no microphone output used.",
+  "normalizer": "nfc-strip-punctuation-space-v1",
+  "spanCoordinates": "normalized_reference_unicode_codepoints",
+  "sealedTest": false,
+  "gates": "No candidate CER/term-accuracy regression or additional false correction in any fixture cohort; development gate only.",
+  "cases": [
+    {
+      "id": "jesus",
+      "cohort": "church_terms",
+      "input": "我們相信耶蘇",
+      "reference": "我們相信耶穌",
+      "terms": [
+        {
+          "start": 4,
+          "end": 6,
+          "value": "耶穌"
+        }
+      ]
+    },
+    {
+      "id": "christ",
+      "cohort": "church_terms",
+      "input": "耶穌基度是主",
+      "reference": "耶穌基督是主",
+      "terms": [
+        {
+          "start": 0,
+          "end": 4,
+          "value": "耶穌基督"
+        }
+      ]
+    },
+    {
+      "id": "spirit",
+      "cohort": "church_terms",
+      "input": "求聖零引導我們",
+      "reference": "求聖靈引導我們",
+      "terms": [
+        {
+          "start": 1,
+          "end": 3,
+          "value": "聖靈"
+        }
+      ]
+    },
+    {
+      "id": "immanuel",
+      "cohort": "church_terms",
+      "input": "我們唱以馬內力",
+      "reference": "我們唱以馬內利",
+      "terms": [
+        {
+          "start": 3,
+          "end": 7,
+          "value": "以馬內利"
+        }
+      ]
+    },
+    {
+      "id": "amen",
+      "cohort": "church_terms",
+      "input": "禱告之後說阿門",
+      "reference": "禱告之後說阿們",
+      "terms": [
+        {
+          "start": 5,
+          "end": 7,
+          "value": "阿們"
+        }
+      ]
+    },
+    {
+      "id": "philippians",
+      "cohort": "bible_books",
+      "input": "今天讀腓力比書",
+      "reference": "今天讀腓立比書",
+      "terms": [
+        {
+          "start": 3,
+          "end": 7,
+          "value": "腓立比書"
+        }
+      ]
+    },
+    {
+      "id": "genesis-reading",
+      "cohort": "bible_books",
+      "input": "晨更讀創世紀",
+      "reference": "晨更讀創世記",
+      "terms": [
+        {
+          "start": 3,
+          "end": 6,
+          "value": "創世記"
+        }
+      ]
+    },
+    {
+      "id": "genesis-speaking",
+      "cohort": "bible_books",
+      "input": "今天講創世紀",
+      "reference": "今天講創世記",
+      "terms": [
+        {
+          "start": 3,
+          "end": 6,
+          "value": "創世記"
+        }
+      ]
+    },
+    {
+      "id": "genesis-chapter",
+      "cohort": "bible_books",
+      "input": "創世紀第一章",
+      "reference": "創世記第一章",
+      "terms": [
+        {
+          "start": 0,
+          "end": 3,
+          "value": "創世記"
+        }
+      ]
+    },
+    {
+      "id": "economy",
+      "cohort": "correct_terms",
+      "input": "我們交通神的經綸",
+      "reference": "我們交通神的經綸",
+      "terms": [
+        {
+          "start": 2,
+          "end": 4,
+          "value": "交通"
+        },
+        {
+          "start": 6,
+          "end": 8,
+          "value": "經綸"
+        }
+      ]
+    },
+    {
+      "id": "spirit-soul",
+      "cohort": "correct_terms",
+      "input": "辨明靈與魂的不同",
+      "reference": "辨明靈與魂的不同",
+      "terms": [
+        {
+          "start": 2,
+          "end": 3,
+          "value": "靈"
+        },
+        {
+          "start": 4,
+          "end": 5,
+          "value": "魂"
+        }
+      ]
+    },
+    {
+      "id": "blending",
+      "cohort": "correct_terms",
+      "input": "調和需要彼此配搭",
+      "reference": "調和需要彼此配搭",
+      "terms": [
+        {
+          "start": 0,
+          "end": 2,
+          "value": "調和"
+        },
+        {
+          "start": 6,
+          "end": 8,
+          "value": "配搭"
+        }
+      ]
+    },
+    {
+      "id": "the-spirit",
+      "cohort": "correct_terms",
+      "input": "我們需要經歷那靈",
+      "reference": "我們需要經歷那靈",
+      "terms": [
+        {
+          "start": 6,
+          "end": 8,
+          "value": "那靈"
+        }
+      ]
+    },
+    {
+      "id": "redemption",
+      "cohort": "correct_terms",
+      "input": "一同思想救贖與恩典",
+      "reference": "一同思想救贖與恩典",
+      "terms": [
+        {
+          "start": 4,
+          "end": 6,
+          "value": "救贖"
+        },
+        {
+          "start": 7,
+          "end": 9,
+          "value": "恩典"
+        }
+      ]
+    },
+    {
+      "id": "gathering",
+      "cohort": "correct_terms",
+      "input": "聚會中有禱告與擘餅",
+      "reference": "聚會中有禱告與擘餅",
+      "terms": [
+        {
+          "start": 4,
+          "end": 6,
+          "value": "禱告"
+        },
+        {
+          "start": 7,
+          "end": 9,
+          "value": "擘餅"
+        }
+      ]
+    },
+    {
+      "id": "city-traffic",
+      "cohort": "general_language",
+      "input": "今天道路交通順暢",
+      "reference": "今天道路交通順暢",
+      "terms": [
+        {
+          "start": 4,
+          "end": 6,
+          "value": "交通"
+        }
+      ]
+    },
+    {
+      "id": "paint-mixing",
+      "cohort": "general_language",
+      "input": "調和藍色與白色顏料",
+      "reference": "調和藍色與白色顏料",
+      "terms": [
+        {
+          "start": 0,
+          "end": 2,
+          "value": "調和"
+        }
+      ]
+    },
+    {
+      "id": "drama-title",
+      "cohort": "proper_names",
+      "input": "週末重看港劇《創世紀》",
+      "reference": "週末重看港劇《創世紀》",
+      "terms": [
+        {
+          "start": 6,
+          "end": 9,
+          "value": "創世紀"
+        }
+      ]
+    },
+    {
+      "id": "verse-number",
+      "cohort": "verse_references",
+      "input": "約翰福音三章十七節",
+      "reference": "約翰福音三章十六節",
+      "terms": [
+        {
+          "start": 0,
+          "end": 4,
+          "value": "約翰福音"
+        },
+        {
+          "start": 4,
+          "end": 9,
+          "value": "三章十六節"
+        }
+      ]
+    },
+    {
+      "id": "repeated-term",
+      "cohort": "repeated_terms",
+      "input": "耶蘇與耶穌",
+      "reference": "耶穌與耶穌",
+      "terms": [
+        {
+          "start": 0,
+          "end": 2,
+          "value": "耶穌"
+        },
+        {
+          "start": 3,
+          "end": 5,
+          "value": "耶穌"
+        }
+      ]
+    },
+    {
+      "id": "empty-text",
+      "cohort": "empty_text",
+      "input": "",
+      "reference": "",
+      "terms": []
+    }
+  ]
+}

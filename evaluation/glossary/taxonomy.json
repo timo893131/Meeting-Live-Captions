@@ -1,0 +1,16 @@
+{
+  "version": "1.0",
+  "provenance": "Manually organized common vocabulary examples, not an extracted TWGBR corpus.",
+  "purpose": "annotation_and_evaluation_design",
+  "training_ready": false,
+  "categories": [
+    {"id":"bible_books","label":"聖經書卷","examples":["創世記","約翰福音","腓立比書"],"policy":"標示譯本、簡稱及一般語言中的同形名稱，不能一律當錯字。"},
+    {"id":"biblical_persons","label":"聖經人物","examples":["耶穌","亞伯拉罕","保羅"],"policy":"保留不同譯本與合法姓名變體，不以單一譯名覆蓋全部。"},
+    {"id":"biblical_places","label":"聖經地名","examples":["耶路撒冷","加利利","哥林多"],"policy":"以來源版本及上下文核對；相同詞可能出現在一般地理敘述。"},
+    {"id":"spiritual_terms","label":"屬靈與神學用語","examples":["重生","救贖","經綸","那靈","靈","魂"],"policy":"保留概念差異；不要把神學近義詞當作辨識錯字互換。"},
+    {"id":"church_life","label":"教會生活與聚會","examples":["交通","擘餅","配搭","禱告","調和"],"policy":"加入多義詞負向案例，檢查一般中文是否被誤改。"},
+    {"id":"verse_references","label":"經文定位與數字","examples":["約翰福音三章十六節"],"policy":"書卷、章、節分別核對；詞彙表不能憑常識把聽見的數字改成常見經節。"},
+    {"id":"local_names","label":"本地姓名與教會名稱","examples":[],"policy":"由使用者提供及確認用途；不編造真實姓名或公開私人詞彙。"},
+    {"id":"ambiguous_terms","label":"多義詞與專名邊界","examples":["交通","調和","創世紀"],"policy":"同時準備正向與不應修改案例，不能只有替換成功案例。"}
+  ]
+}
