@@ -101,3 +101,5 @@ npm run test:ui
 目標詞／概念已經使用者確認，核准範圍見 [approved-targets.json](evaluation/glossary/approved-targets.json)。下一階段採用已有且獲准評估的聚會錄音：[錄音盤點與真實回測接軌](docs/meeting-audio-evaluation.md)；已收到首份音檔與待核對文字；[本機辨識準備與網路狀態](docs/local-asr.md)。已完成首份實錄的本機 Whisper small 基線，人工稿核對及正式準確率量測待完成；尚未微調模型。
 
 下一輪詞彙調整採 [上下文候選逐段核對](docs/context-correction-review.md)：保留原始辨識，只有符合上下文時提出建議，再回聽採用／拒絕；不會直接變更正式網站的替換表。
+
+下一批請先準備兩份獨立場次的錄音與對應文字：[資料提供方式與已固定的回測計畫](docs/next-recording-batch.md)。第三份可保留到最後測試再提供內容。

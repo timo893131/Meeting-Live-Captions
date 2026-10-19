@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "pilot-evaluation-plan-1",
+  "planId": "church-vocabulary-pilot-20261019",
+  "status": "awaiting_new_validation_recordings",
+  "recordedOn": "2026-10-19",
+  "timezone": "Asia/Taipei",
+  "codeCommit": "fb3c187102b46bae2a242e77e53ab22434ea8a8f",
+  "pinnedFiles": {
+    "evaluation/glossary/context-review-rules.json": "ed63d4879a0b4b3917f01ec66613e08fbf6d43190090521ea01511da86c935d2",
+    "scripts/propose-context-corrections.mjs": "052a2b148719b0b338d28e12f38d6616ce8a691365b5c5c15788af4eed6c4b48",
+    "scripts/transcribe_audio.py": "4889b667b959c38c81ff6bb62622a0f94502540b9311e423afc0fe4834e3edcc",
+    "scripts/glossary-metrics.mjs": "60d820450f7341fce94b12e24ccea1bc87cf5113570bbb07e005c150a7636330"
+  },
+  "purpose": "internal_evaluation",
+  "automaticProductionPromotion": false,
+  "trainingRun": false,
+  "data": {
+    "existingSampleRole": "seen_development_only_not_gold_or_sealed_test",
+    "initialNewValidationSessions": 2,
+    "suggestedMinutesPerRecording": {
+      "min": 5,
+      "max": 10
+    },
+    "preferDifferentSpeakers": true,
+    "speakerGeneralizationClaimRequiresSpeakerDisjoint": true,
+    "groupBy": [
+      "original_recording",
+      "meeting_session",
+      "derived_audio"
+    ],
+    "reserveLaterIndependentSession": true,
+    "reservedSessionContents": "not_submitted_or_inspected_until_final_test",
+    "referenceRequirements": [
+      "preserve supplied source text",
+      "verify actual spoken words and segment bounds",
+      "separate citation/ellipsis uncertainty from acoustic errors",
+      "do not label script-assisted drafts as fully human verified"
+    ]
+  },
+  "baseline": {
+    "recognizer": "Systran/faster-whisper-small",
+    "revision": "536b0662742c02347bc0e980a01041f333bce120",
+    "modelSha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+    "device": "cpu",
+    "computeType": "int8",
+    "threads": 4,
+    "language": "zh",
+    "beamSize": 5,
+    "temperature": 0,
+    "vadFilter": false,
+    "conditionOnPreviousText": true,
+    "referencePrompt": false,
+    "hotwords": false,
+    "glossaryApplied": false
+  },
+  "candidate": {
+    "onlyVariable": "Apply frozen same-segment literal context rules to the exact same raw ASR output",
+    "rulesPath": "evaluation/glossary/context-review-rules.json",
+    "rulesSha256": "ed63d4879a0b4b3917f01ec66613e08fbf6d43190090521ea01511da86c935d2",
+    "doNotAddRulesAfterSeeingNewValidationResultsUnderSamePlan": true
+  },
+  "metrics": {
+    "normalizer": "nfc-strip-punctuation-space-v1",
+    "characterAlignment": "character-alignment-v1",
+    "primary": "CER with S/D/I/N",
+    "termAccuracy": "position-aligned annotated occurrences",
+    "falseCorrections": "originally correct annotated occurrences made incorrect",
+    "cohorts": [
+      "session",
+      "speaker_if_known",
+      "church_target_terms",
+      "general_language",
+      "verse_numbers",
+      "noise_if_present"
+    ],
+    "timing": "offline load and transcription time; not live caption latency"
+  },
+  "pilotGate": {
+    "allLabelsAndAudioRightsEvidenceRequired": true,
+    "maxNewConfirmedFalseCorrections": 0,
+    "maxOverallCerIncrease": 0,
+    "maxMeasuredCohortCerIncrease": 0,
+    "maxTargetTermAccuracyDrop": 0,
+    "confirmedTargetImprovementRequired": true,
+    "missingCoverageOrZeroTermDenominator": "insufficient_evidence_not_pass",
+    "noRuleHits": "no_correction_benefit_demonstrated",
+    "pilotPassDoesNotEstablishStatisticalPowerOrProductionReadiness": true
+  },
+  "delivery": [
+    "raw ASR and candidate outputs kept separate",
+    "human-reference review status and exclusions",
+    "S/D/I/N and term/error counts by measured cohort",
+    "artifact hashes and runtime",
+    "passed/failed/insufficient with missing coverage stated"
+  ],
+  "limitations": [
+    "Only a pilot; two short recordings cannot establish broad accuracy.",
+    "No real-data scoring runner or reviewed new dataset has been completed yet.",
+    "The synthetic-only glossary evaluator must not be relabeled to accept real recordings.",
+    "Browser SpeechRecognition is a different recognizer and is not evaluated by this offline comparison.",
+    "Evaluation permission does not establish model-training permission."
+  ]
+}
