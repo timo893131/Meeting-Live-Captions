@@ -99,3 +99,5 @@ npm run test:ui
 人工審閱：[教會詞彙清單](docs/glossary-review.md)。真實錄音接入：[manifest 檢查與 split 審計](docs/audio-manifest-check.md)；工具只在本機查核，不會上傳、辨識或訓練。
 
 目標詞／概念已經使用者確認，核准範圍見 [approved-targets.json](evaluation/glossary/approved-targets.json)。下一階段採用已有且獲准評估的聚會錄音：[錄音盤點與真實回測接軌](docs/meeting-audio-evaluation.md)；已收到首份音檔與待核對文字；[本機辨識準備與網路狀態](docs/local-asr.md)。已完成首份實錄的本機 Whisper small 基線，人工稿核對及正式準確率量測待完成；尚未微調模型。
+
+下一輪詞彙調整採 [上下文候選逐段核對](docs/context-correction-review.md)：保留原始辨識，只有符合上下文時提出建議，再回聽採用／拒絕；不會直接變更正式網站的替換表。

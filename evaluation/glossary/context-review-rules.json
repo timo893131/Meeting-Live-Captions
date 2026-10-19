@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "status": "development_review_only",
+  "productionEligible": false,
+  "provenance": "Manually authored hypotheses after inspecting one seen development recording; not human-verified corrections or an independent test set.",
+  "rules": [
+    {"id":"fasting-disciples","source":"靜時","target":"禁食","contexts":[{"before":"門徒倒不"}]},
+    {"id":"lamb-religious-context","source":"高揚","target":"羔羊","contexts":[{"before":"主耶穌是"},{"before":"我們罪的"},{"after":"是救贖主"}]},
+    {"id":"baptism-spirit-context","source":"施敬","target":"施浸","contexts":[{"before":"用靈為我們"}]},
+    {"id":"virgins-we-context","source":"同女","target":"童女","contexts":[{"before":"我們是"},{"before":"我們都必須是"}]},
+    {"id":"assembly-gathering-context","source":"詔會","target":"召會","contexts":[{"after":"的聚會"}]}
+  ],
+  "withheld": [
+    {"source":"婚姻","possibleTarget":"婚筵","reason":"婚姻 is valid general language; context and listening policy not established."},
+    {"source":"演習","possibleTarget":"筵席","reason":"演習 is valid general language; context and listening policy not established."},
+    {"source":"高揚的妻","possibleTarget":"羔羊的妻","reason":"Could refer to a person's name; insufficient local context."}
+  ]
+}
