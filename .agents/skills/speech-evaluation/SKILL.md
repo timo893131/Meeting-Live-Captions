@@ -33,3 +33,5 @@ baseline／candidate 版本、具授權的固定資料 manifest、reference 來�
 本機離線基線另見 [local ASR](../../../docs/local-asr.md)。`scripts/transcribe_audio.py` 只接受本機模型，不用 reference／hotwords 作提示，保存 raw ASR 與 provenance；權重未取得時不能把合成引擎測試當成實際推論通過。
 
 單份實錄的待審詞彙假說可用 [context review](../../../docs/context-correction-review.md) 流程。`propose-context-corrections.mjs` 只提議同段字串上下文命中，`build-context-review.py` 產生私人的採用／拒絕頁；不得把 pending 建議、UI 決策或修改數當作 gold、正式規則或準確率。
+
+回傳決策以 `scripts/apply-context-decisions.mjs` 驗證原始 ASR／規則／錄音 hash 與候選內容後匯入，只套用 accepted 的出現位置，保留原文和時間戳；見同份 context review 文件。即使所有提議已採用，也只是部分校正，不能把其他未核對片段標為 human_verified 或直接更新正式詞彙表。
