@@ -95,3 +95,14 @@ Parquet底層row group可能包含多於15筆資料。實際只保存選中的15
 新版從 `/api/datasets/google/fleurs/revision/<commit>?blobs=true` 取得 siblings，核對回傳commit後篩選真實路徑，不再查詢nested tree。只接受設定的cmn_hant_tw／validation目錄或該語言的validation分片命名；不混入其他語言或train。報告新增parquet_discovery，包含檔案數、符合數及最多20個Parquet路徑；原始metadata另存raw/parquet-files-metadata.json。找不到符合檔案時保留此診斷並停止，不更換來源或擴大下載限制。既有snapshot只有來源commit、檔名、大小及發布者hash相同才可續用，保留舊snapshot原bytes及manifest引用hash。
 
 在既有Colab執行階段依序重跑第01格（更新main）及第06格（下載）；不需重連GPU、刪除Drive cache或重跑全部儲存格。程式的合成回歸測試已驗證路徑篩選、版本不符拒絕、15段保存與快取續抓；真實FLEURS下載是否通過仍須由Colab新報告確認，基準與訓練尚未執行。
+
+
+## 暫停FLEURS子集，先執行教會來源爬蟲
+
+使用者上傳的11e516d執行結果已取得官方匯出commit 168de341b3db6859a9bac1c50a2ef5e3b47647e0的306個檔名（305個Parquet），matching_file_count=0。先前未確認cmn_hant_tw子集存在就採用該來源，是來源選擇錯誤；不再以網路重試處理。sources/taiwan-mandarin-pilot.json明確download_enabled=false，CLI在接觸資料卡／音訊前停止，原訓練Notebook也預設停用該收集格。不改以中國大陸華語或粵語冒充台灣華語。
+
+改用[獨立CPU爬蟲Notebook](https://colab.research.google.com/github/timo893131/Meeting-Live-Captions/blob/main/notebooks/crawl_church_sources.ipynb)，不需GPU／Whisper／HF帳號。依序執行4格，掛載Drive後從使用者指定的恢復本與生命讀經網址追蹤實際站內連結，資料存於MyDrive/meeting-live-captions/source-collection/twgbr-v1，最後下載collection-report.json。
+
+爬蟲上限10頁、每回應2,000,000 bytes、總20MiB、40個累積requests、1 req/s、最多1 retry、180秒；遵守robots及Crawl-delay，拒絕未知host。原始HTML、時間與hash保存於raw/，抽取#verses正文於text_only/，索引頁不當正文，音訊URL於review/audio-index.jsonl。原網頁不是已核對逐字稿；授權pending、alignment未驗、training_ready=false。尚未獲得TWGBR訓練授權，這一階段不下載完整音訊或啟動訓練。HTTP cache與不可變receipt核對hash後可續用，增量索引可從部分完成狀態續抓，檔案內容變更不覆寫原始檔。
+
+本機實跑結果：TWGBR robots連線被執行環境proxy CONNECT 403阻擋，0頁／0份正文／0音訊；Common Voice官方目錄README、SCS格式文件與v27 release metadata共3份已取得（合計HTTP body 342,317 bytes，含robots回應）。這些是目錄文件，不是音訊訓練資料。已配對0h、待校對音訊0h、已訓練0，沒有真實CER或即時效能結果。Colab是否可連教會網站仍待實際報告，沒有把合成測試當成功爬取。

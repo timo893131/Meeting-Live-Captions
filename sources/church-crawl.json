@@ -1,0 +1,28 @@
+{
+  "phase": "source_collection_pending_rights",
+  "allowed_hosts": ["line.twgbr.org", "raw.githubusercontent.com"],
+  "seeds": [
+    "https://line.twgbr.org/life-study/",
+    "https://line.twgbr.org/recoveryversion/bible/01.html"
+  ],
+  "limits": {
+    "max_pages": 10,
+    "samples": 15,
+    "max_requests": 40,
+    "max_total_body_bytes": 20971520,
+    "max_file_bytes": 2000000,
+    "interval_seconds": 1,
+    "max_retries": 1,
+    "timeout_seconds": 20,
+    "max_wall_seconds": 180,
+    "max_redirects": 4
+  },
+  "catalog_urls": [
+    "https://raw.githubusercontent.com/common-voice/cv-dataset/main/README.md",
+    "https://raw.githubusercontent.com/common-voice/cv-dataset/main/datasets/scripted-speech/README.md",
+    "https://raw.githubusercontent.com/common-voice/cv-dataset/main/datasets/scripted-speech/cv-corpus-27.0-2026-09-11.json"
+  ],
+  "rights_status": "pending",
+  "download_audio": false,
+  "training_enabled": false
+}

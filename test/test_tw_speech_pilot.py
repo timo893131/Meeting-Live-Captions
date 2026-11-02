@@ -29,7 +29,29 @@ class FetchTests(unittest.TestCase):
         config = json.loads((ROOT/'sources/taiwan-mandarin-pilot.json').read_text())
         config['limits']['interval_seconds'] = 0
         config['source']['transport'] = 'viewer_rows'
+        config['source']['download_enabled'] = True
         return config
+
+    def test_disabled_source_stops_before_any_network_access(self):
+        from types import SimpleNamespace
+        config = self.config(); config['source']['download_enabled'] = False
+        config['source']['disabled_reason'] = 'Unavailable Taiwan subset'
+        with tempfile.TemporaryDirectory() as folder:
+            def get(*args, **kwargs):raise AssertionError('Disabled source must not request metadata or audio')
+            with self.assertRaisesRegex(ValueError, 'Unavailable Taiwan subset'):
+                pilot.collect(Path(folder), config, SimpleNamespace(get=get))
+
+    def test_html_robots_and_excessive_crawl_delay_stop_before_pages(self):
+        for body in [b'<!doctype html><html>Error</html>', b'User-agent: *\nAllow: /\nCrawl-delay: 60\n']:
+            with self.subTest(body=body), tempfile.TemporaryDirectory() as folder:
+                fetcher = pilot.BoundedFetcher(folder, self.config())
+                class Opener:
+                    def open(self, request, **kwargs):
+                        if not request.full_url.endswith('robots.txt'):raise AssertionError('No document allowed')
+                        return Response(body)
+                fetcher.opener = Opener()
+                with self.assertRaises(RuntimeError):fetcher.get('https://huggingface.co/test')
+                self.assertEqual(fetcher.state['requests'], 1)
 
     def test_resume_verifies_cached_bytes_and_does_not_download_twice(self):
         with tempfile.TemporaryDirectory() as root:

@@ -94,7 +94,14 @@ class BoundedFetcher:
             robot_url = origin+'/robots.txt'
             body = self.get(robot_url, robots=False, allow_404=True, max_bytes=262144)
             policy = urllib.robotparser.RobotFileParser(robot_url)
-            policy.parse(body.decode('utf8', errors='replace').splitlines())
+            if body.lstrip().lower().startswith((b'<html', b'<!doctype html')):
+                raise RuntimeError('robots.txt returned HTML; source access not verified')
+            policy.parse(body.decode('utf8', errors='strict').splitlines())
+            delay = policy.crawl_delay(UA) or policy.crawl_delay('*')
+            if delay is not None:
+                if delay > 30:
+                    raise RuntimeError('robots Crawl-delay exceeds bounded run; defer collection')
+                self.limits['interval_seconds'] = max(self.limits['interval_seconds'], delay)
             self.robots[origin] = policy
         if not self.robots[origin].can_fetch(UA, url):
             raise RuntimeError('robots.txt disallows this URL')
@@ -275,6 +282,8 @@ def check_license(card, expected):
 
 def collect(root, config, fetcher, progress=None):
     source = config['source']
+    if source.get('download_enabled') is False:
+        raise ValueError(source.get('disabled_reason', 'Source download disabled after availability review'))
     card_bytes = fetcher.get(source['card_url'], max_bytes=1048576)
     preserve_bytes(root/'raw/dataset-card.md', card_bytes)
     try:

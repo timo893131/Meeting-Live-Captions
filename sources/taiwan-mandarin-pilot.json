@@ -44,7 +44,10 @@
     "transport": "hub_parquet",
     "parquet_revision": "refs/convert/parquet",
     "parquet_directory": "cmn_hant_tw/validation",
-    "repository_id": "google/fleurs"
+    "repository_id": "google/fleurs",
+    "download_enabled": false,
+    "availability_status": "unavailable_in_inspected_export",
+    "disabled_reason": "FLEURS export has no cmn_hant_tw subset; stop retries. Use notebooks/crawl_church_sources.ipynb for the requested church source collection."
   },
   "other_sources_review_only": [
     {

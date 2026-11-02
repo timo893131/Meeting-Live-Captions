@@ -107,3 +107,6 @@ CER重用現有NFC／去標點空白版本與字元S/D/I/N，不轉繁簡、不�
 後續運算平台已由使用者選定 **Google Colab，先嘗試免費GPU**。本環境繼續資料準備；[雲端訓練方案及Notebook](../cloud-training.md)已提供20步LoRA smoke、資料gate與Drive checkpoint。GPU實跑未完成，不代表當前pilot已可訓練。
 
 後續Colab證據：授權已明確匹配CC-BY-4.0，但metadata階段HTTP500，音訊仍0。來源設定已切換到同一官方HF資料庫的Parquet匯出，支援有預算的Range讀取與不可變revision；不是取消授權／擷取規則或改用未驗證鏡像。詳細傳輸限制與未知時數處理見[cloud-training.md](../cloud-training.md)。實際匯出存在性與下載仍待Colab執行，訓練保持關閉。
+
+
+後續來源更正：11e516d Colab報告成功讀取官方匯出306個檔案，但cmn_hant_tw符合數0。先前採用此未確認子集是錯誤，該音訊來源已停用，勿再要求重跑。使用者改要求先爬指定教會資源，已建立獨立CPU爬蟲（10頁／20MiB／40 requests／180秒），原文與音訊URL分開保存，pending rights、非逐字稿、不訓練。本機已抓取3份Common Voice官方目錄文件；TWGBR受proxy CONNECT 403阻擋，教會頁面及音訊仍0。雲端爬蟲可存Drive，真實結果須由Colab報告確認；入口見cloud-training.md最後一節。

@@ -24,6 +24,7 @@ class Response(io.BytesIO):
 
 def config():
     cfg=json.loads((ROOT/'sources/taiwan-mandarin-pilot.json').read_text())
+    cfg['source']['download_enabled']=True
     cfg['limits']['interval_seconds']=0
     return cfg
 
