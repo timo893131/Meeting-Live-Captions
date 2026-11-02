@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0",
+  "platform_default": "google_colab",
+  "compute": {"device": "cuda", "recommended_gpu_memory_gib": 16, "paid_instance_auto_launch": false},
+  "model": {"id": "openai/whisper-small", "revision": null, "language": "zh", "task": "transcribe"},
+  "data": {
+    "root": "/content/drive/MyDrive/meeting-live-captions/data",
+    "train_manifest": "manifests/train.jsonl",
+    "validation_manifest": "manifests/validation.jsonl",
+    "test_manifest": "manifests/test.jsonl",
+    "sample_rate_hz": 16000,
+    "channels": 1,
+    "min_seconds": 5,
+    "max_seconds": 30,
+    "require_known_speakers": true,
+    "max_total_records": 10000
+  },
+  "lora": {"r": 8, "alpha": 16, "dropout": 0.05, "target_modules": ["q_proj", "v_proj"]},
+  "training": {
+    "seed": 42,
+    "mode": "smoke",
+    "smoke_steps": 20,
+    "pilot_steps": 200,
+    "batch_size": 1,
+    "gradient_accumulation_steps": 4,
+    "learning_rate": 0.0001,
+    "save_steps": 10,
+    "eval_steps": 10,
+    "max_runtime_minutes": 30,
+    "fp16": true,
+    "report_to": []
+  },
+  "output_root": "/content/drive/MyDrive/meeting-live-captions/runs",
+  "automatic_training": false,
+  "automatic_deployment": false,
+  "test_use": "metadata leakage audit only during training; final model comparison is a separate action after candidate selection"
+}

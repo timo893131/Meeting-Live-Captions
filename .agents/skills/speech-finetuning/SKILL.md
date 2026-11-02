@@ -29,3 +29,5 @@ description: 在授權資料、固定評估與算力預算具備時規劃或執�
 - loss 下降、訓練完成或 checkpoint 存在都不等於字幕品質提升；不得用編造的數字／音訊補足成果。
 
 按需參考：[模型方案](../../../docs/architecture-and-speech.md)、[訓練工作流](../../../docs/workflow.md)、[模型卡](../../../docs/templates/model-card.md)。
+
+使用者已選定雲端GPU，先採Google Colab免費配額，不在目前CPU環境訓練。入口為 [Colab Notebook](../../../notebooks/cloud_whisper_lora.ipynb)、[雲端方案](../../../docs/cloud-training.md) 與 training/cloud-whisper-lora.json。先跑 cloud_training_data.py：train要求training權利，validation/test只要求internal_evaluation；pending／unassigned／近似去重或人工稿未完成時拒絕。train_cloud_whisper.py 預設20步LoRA smoke並固定revision／版本／manifest；本機只驗證資料gate與語法，Colab GPU訓練和resume尚未實跑，勿宣稱成功或自動啟用。

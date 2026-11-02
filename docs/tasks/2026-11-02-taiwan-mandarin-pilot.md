@@ -103,3 +103,5 @@ CER重用現有NFC／去標點空白版本與字元S/D/I/N，不轉繁簡、不�
 6. 固定baseline與未參訓test比較CER、一般中文／專名／語碼混合／噪音，並在同硬體同正常速度條件比較即時延遲。保留原模型、設定與checkpoint；轉回CTranslate2／int8後再測。品質或延遲退步就保留baseline。
 
 本工作沒有改動既有教會資料權利；TWGBR仍限已允許的盤點／技術檢查，不加入本次訓練。token／費用未提供metadata，記unavailable；不宣稱節省率。
+
+後續運算平台已由使用者選定 **Google Colab，先嘗試免費GPU**。本環境繼續資料準備；[雲端訓練方案及Notebook](../cloud-training.md)已提供20步LoRA smoke、資料gate與Drive checkpoint。GPU實跑未完成，不代表當前pilot已可訓練。

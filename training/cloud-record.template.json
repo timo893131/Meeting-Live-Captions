@@ -1,0 +1,21 @@
+{
+  "example_only": true,
+  "id": "replace-with-actual-segment-id",
+  "audio_filepath": "processed/replace-with-actual-clip.wav",
+  "text": null,
+  "language": "cmn-Hant-TW",
+  "duration": null,
+  "sha256": null,
+  "recording_id": null,
+  "speaker_id": null,
+  "split": "unassigned",
+  "license_status": "pending",
+  "allowed_uses": [],
+  "rights_evidence_ref": null,
+  "transcript_status": "pending",
+  "local_reference_verified": false,
+  "near_duplicate_review": "pending",
+  "training_ready": false,
+  "evaluation_ready": false,
+  "language_spans": []
+}

@@ -105,3 +105,5 @@ npm run test:ui
 下一批請先準備兩份獨立場次的錄音與對應文字：[資料提供方式與已固定的回測計畫](docs/next-recording-batch.md)。第三份可保留到最後測試再提供內容。
 
 台灣華語語音資料 Agent：[小樣本流程、來源／模型盤點、實際阻礙與微調方案](docs/tasks/2026-11-02-taiwan-mandarin-pilot.md)。預設15段、100MiB語料預算，不自動擴量或訓練；目前網路攔截使實錄基準仍未完成。
+
+微調運算平台已選定 **Google Colab GPU（先嘗試免費配額）**：[開啟訓練 Notebook](https://colab.research.google.com/github/timo893131/Meeting-Live-Captions/blob/main/notebooks/cloud_whisper_lora.ipynb) · [資料格式、checkpoint 與驗證限制](docs/cloud-training.md)。目前尚未開始GPU訓練。

@@ -1,0 +1,7 @@
+# Keep Colab's CUDA-matched torch; capture its actual version in every run.
+transformers==4.46.3
+peft==0.14.0
+accelerate==1.2.1
+safetensors==0.4.5
+jiwer==3.0.5
+huggingface-hub==0.27.1
