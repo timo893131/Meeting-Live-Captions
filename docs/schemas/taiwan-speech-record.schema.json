@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Taiwan Mandarin pilot record",
+  "description": "A provider-claimed pair is not locally verified. Raw ingestion may have null duration/timestamps until probing; formal training requires independent gates not represented by schema alone.",
+  "type": "object",
+  "required": ["id", "audio_filepath", "text", "language", "duration", "source_url", "recording_id", "speaker_id", "segment_start", "segment_end", "transcript_status", "license_status", "sha256", "split"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "audio_filepath": {"type": "string", "minLength": 1},
+    "text": {"type": "string"},
+    "raw_text": {"type": ["string", "null"]},
+    "normalized_text": {"type": ["string", "null"]},
+    "language": {"type": "string", "minLength": 1},
+    "language_spans": {"type": "array"},
+    "duration": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "source_url": {"type": "string", "minLength": 1},
+    "recording_id": {"type": ["string", "null"]},
+    "speaker_id": {"type": ["string", "null"]},
+    "segment_start": {"type": ["number", "null"], "minimum": 0},
+    "segment_end": {"type": ["number", "null"], "minimum": 0},
+    "transcript_status": {"enum": ["pending", "provider_reference", "source_reference", "machine_generated", "human_verified"]},
+    "license_status": {"enum": ["pending", "approved", "restricted", "denied"]},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "raw_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "split": {"enum": ["unassigned", "train", "validation", "test"]},
+    "proposed_split": {"enum": ["unassigned", "train", "validation", "test"]},
+    "local_reference_verified": {"type": "boolean"},
+    "training_ready": {"const": false}
+  },
+  "additionalProperties": true
+}

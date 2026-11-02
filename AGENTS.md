@@ -16,6 +16,7 @@
 | --- | --- | --- |
 | UI、可讀性、易用性、無障礙 | .agents/skills/meeting-ui-ux/SKILL.md | public/、畫面與互動驗證 |
 | 房間、權限、同步、重連、保存 | .agents/skills/meeting-realtime/SKILL.md | 兩個後端與 WebSocket 契約 |
+| 台灣華語公開語料、小樣本流程與基線 | .agents/skills/taiwan-mandarin-data/SKILL.md | sources/taiwan-mandarin-pilot.json、tw_speech_*.py |
 | 網站爬取、音檔／文字蒐集、授權 | .agents/skills/church-data-acquisition/SKILL.md | 來源登錄與原始資料清單 |
 | 音訊／逐字稿轉換、標註、切分 | .agents/skills/speech-data-preparation/SKILL.md | 資料 manifest、轉換報告 |
 | 詞彙、ASR 比較、歷史資料回測 | .agents/skills/speech-evaluation/SKILL.md | 固定基準與候選比較 |

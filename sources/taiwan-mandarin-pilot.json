@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "agent_name": "台灣華語語音資料 Agent",
+  "purpose": [
+    "internal_evaluation",
+    "training_preparation"
+  ],
+  "limits": {
+    "samples": 15,
+    "max_metadata_pages": 1,
+    "max_requests": 60,
+    "max_total_body_bytes": 104857600,
+    "max_file_bytes": 12582912,
+    "interval_seconds": 1,
+    "max_retries": 1,
+    "timeout_seconds": 20,
+    "max_wall_seconds": 600,
+    "max_redirects": 4
+  },
+  "allowed_hosts": [
+    "huggingface.co",
+    "datasets-server.huggingface.co",
+    "raw.githubusercontent.com"
+  ],
+  "source": {
+    "id": "google-fleurs-cmn-hant-tw",
+    "dataset_url": "https://huggingface.co/datasets/google/fleurs",
+    "card_url": "https://huggingface.co/datasets/google/fleurs/raw/main/README.md",
+    "rows_url": "https://datasets-server.huggingface.co/rows?dataset=google%2Ffleurs&config=cmn_hant_tw&split=validation&offset=0&length=15",
+    "language": "cmn-Hant-TW",
+    "expected_license": "cc-by-4.0",
+    "license_status_before_card_verification": "pending",
+    "attribution": "FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech, Conneau et al., Google, 2022; retain retrieved data card and upstream attribution notices.",
+    "corpus_kind": "read_speech_not_general_conversation",
+    "speaker_mapping": "unknown_unless_provider_has_explicit_speaker_id",
+    "reference_status": "provider_reference"
+  },
+  "other_sources_review_only": [
+    {
+      "id": "common-voice-zh-TW-v27",
+      "metadata_url": "https://raw.githubusercontent.com/common-voice/cv-dataset/main/datasets/scripted-speech/cv-corpus-27.0-2026-09-11.json",
+      "platform_url": "https://mozilladatacollective.com/",
+      "license_status": "pending_release_data_card",
+      "full_archive_bytes": 3173160333,
+      "full_archive_sha256": "96615945c476f795e03b666d1793b5e7fa8f080bfe92cb73c54fcf6254e2b094",
+      "download_enabled": false,
+      "reason": "Full archive exceeds pilot budget; per-clip official access and release license must be verified first."
+    }
+  ],
+  "training_enabled": false,
+  "automatic_scale_up": false
+}
