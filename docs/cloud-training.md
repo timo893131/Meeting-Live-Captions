@@ -77,7 +77,7 @@ Notebook不輸出真實即時P50/P95；正式採用前仍需正常速度播放�
 
 Colab回傳資料卡declared_licenses=[cc-by-4.0]、status=approved，card SHA-256為688f79f2a5c731af3796e9f683eb02f9b3f09d040decd8c5625d0f37098e71c6；接著取得metadata時HTTP500，當時仍無音訊。舊報告沒有記錄失敗URL，因此不能只由HTTP500判定是Viewer rows或robots端點。新版會額外記錄failed_request的host/path/status，省略query與暫時簽名。
 
-目前來源設定改為hub_parquet，直接使用同一官方google/fleurs資料庫的refs/convert/parquet分支，不再重跑原先失敗的Viewer rows服務。依官方huggingface_hub v0.27.1 API協議解析不可變commit、只列cmn_hant_tw/validation的一頁目錄、最多選一個Parquet shard。是否存在該匯出與實際網路下載結果仍須在Colab確認，本機沒有直接讀到這個資料分支。
+目前來源設定改為hub_parquet，直接使用同一官方google/fleurs資料庫的refs/convert/parquet分支，不再重跑原先失敗的Viewer rows服務。依官方huggingface_hub v0.27.1 API協議解析不可變commit，再讀取該commit的dataset info（?blobs=true）實際檔名、大小與LFS hash，最多選一個台灣華語validation的Parquet shard。是否存在該匯出與實際網路下載結果仍須在Colab確認，本機沒有直接讀到這個資料分支。
 
 來源資料卡授權gate不變，通過後才接觸音訊。透過PyArrow讀Parquet，但不執行遠端datasets腳本。每次HTTP Range為4MiB，強制206及精確Content-Range；伺服器若回整檔200就拒絕。原有100MiB累積body／60 HTTP requests／15段／600秒限制保留，單段原音及單次回應仍受12MiB限制。只有列在設定裡的官方Hub CDN可接受redirect，沒有開放任意host。
 
@@ -86,3 +86,12 @@ Parquet底層row group可能包含多於15筆資料。實際只保存選中的15
 原音每檔計算SHA-256，Parquet來源commit／發布者hash／區塊hash保留。僅在所有區塊已實際取得時才驗完整發布者hash；部分讀取不宣稱整個Parquet檔已驗完整hash。已完成區塊可續用Drive cache。Range請求在傳輸前預留已知長度的byte budget，失敗時仍保守計入；此預算計數可能高於實收，不會因中斷而放大可下載容量。
 
 新增Range／Parquet合成測試，驗證忽略Range時拒絕整檔、跨redirect保留Range、完整hash不符拒絕、15段原始bytes保存及續抓不重下載。真實FLEURS下載尚待Colab；沒有用測試fixture冒充資料或完成基準。
+
+
+## 匯出目錄查詢 HTTP 404：改用固定版本的檔案 metadata
+
+使用者上傳的 Colab notebook 顯示 GPU 檢查及授權檢查通過，已解析匯出 commit 168de341b3db6859a9bac1c50a2ef5e3b47647e0；但 nested tree 端點 cmn_hant_tw%2Fvalidation 回傳404，音訊仍為0。這個回應不能單獨證明匯出資料不存在。
+
+新版從 `/api/datasets/google/fleurs/revision/<commit>?blobs=true` 取得 siblings，核對回傳commit後篩選真實路徑，不再查詢nested tree。只接受設定的cmn_hant_tw／validation目錄或該語言的validation分片命名；不混入其他語言或train。報告新增parquet_discovery，包含檔案數、符合數及最多20個Parquet路徑；原始metadata另存raw/parquet-files-metadata.json。找不到符合檔案時保留此診斷並停止，不更換來源或擴大下載限制。既有snapshot只有來源commit、檔名、大小及發布者hash相同才可續用，保留舊snapshot原bytes及manifest引用hash。
+
+在既有Colab執行階段依序重跑第01格（更新main）及第06格（下載）；不需重連GPU、刪除Drive cache或重跑全部儲存格。程式的合成回歸測試已驗證路徑篩選、版本不符拒絕、15段保存與快取續抓；真實FLEURS下載是否通過仍須由Colab新報告確認，基準與訓練尚未執行。

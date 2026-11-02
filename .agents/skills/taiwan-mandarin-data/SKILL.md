@@ -18,4 +18,4 @@ description: 台灣華語語音資料 Agent：有限來源盤點、授權隔離�
 
 正式站仍為WebSpeech，無自有可微調權重。Whisper/CTranslate2只是本機推論；小規模LoRA需原始PyTorch訓練權重、合法標籤、隔離資料與實測GPU資源。此Agent不自行啟動訓練。
 
-來源預設已改官方Hub Parquet匯出（tw_parquet_source.py），避開Viewer 500。需取得不可變commit與指定目錄，再於既有byte/request budget內做精確206 Range讀取；不整包下載、不執行遠端dataset腳本。區塊可多載未選列，只有選中音訊計時selected_audio_hours；downloaded_hours=null，不把未知當0。部分讀取不宣稱完整Parquet hash已驗，詳細規則見cloud-training.md最新段落。此路徑尚未有實際FLEURS成功下載證據。
+來源預設已改官方Hub Parquet匯出（tw_parquet_source.py），避開Viewer 500。需取得不可變commit，再以該版本dataset info的?blobs=true檔案metadata篩選指定語言／split（不用nested tree查詢），再於既有byte/request budget內做精確206 Range讀取；不整包下載、不執行遠端dataset腳本。區塊可多載未選列，只有選中音訊計時selected_audio_hours；downloaded_hours=null，不把未知當0。部分讀取不宣稱完整Parquet hash已驗，詳細規則見cloud-training.md最新段落。此路徑尚未有實際FLEURS成功下載證據。

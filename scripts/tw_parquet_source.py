@@ -74,27 +74,52 @@ def collect_parquet(root,config,fetcher,progress=None):
     info_bytes=fetcher.get(info_url,max_bytes=4194304);info=json.loads(info_bytes)
     commit=info.get('sha')
     if not isinstance(commit,str) or not re.fullmatch('[0-9a-f]{40}',commit):raise ValueError('Missing immutable dataset export revision')
-    tree_url=f'https://huggingface.co/api/datasets/{repo}/tree/{commit}/{urllib.parse.quote(directory,safe="")}?recursive=false&expand=false'
-    tree_bytes=fetcher.get(tree_url,max_bytes=4194304);tree=json.loads(tree_bytes)
-    if not isinstance(tree,list) or len(tree)>1000:raise ValueError('Invalid bounded Parquet directory listing')
-    files=[]
-    for item in tree:
-        if not isinstance(item,dict) or not isinstance(item.get('path'),str):raise ValueError('Invalid Parquet directory entry')
-        file=item['path']
-        if item.get('type')=='file' and file.startswith(directory+'/') and file.endswith('.parquet'):
+    # Dataset info exposes actual sibling paths without depending on nested-tree routing.
+    files_url=f'https://huggingface.co/api/datasets/{repo}/revision/{commit}?blobs=true'
+    listing_bytes=fetcher.get(files_url,max_bytes=4194304);listing=json.loads(listing_bytes)
+    if not isinstance(listing,dict) or listing.get('sha')!=commit:
+        raise ValueError('Parquet file metadata does not match immutable revision')
+    siblings=listing.get('siblings')
+    if not isinstance(siblings,list) or len(siblings)>20000:
+        raise ValueError('Invalid bounded Parquet file listing')
+    files=[];parquet_paths=[]
+    for item in siblings:
+        if not isinstance(item,dict) or not isinstance(item.get('rfilename'),str):
+            raise ValueError('Invalid Parquet file metadata entry')
+        file=item['rfilename']
+        if not file.endswith('.parquet'):continue
+        parquet_paths.append(file)
+        # Accept only the configured language and split, including the common flat layout.
+        target=(file.startswith(directory+'/') or
+                re.fullmatch(r'(?:data/)?cmn_hant_tw/validation-[^/]+\.parquet',file) is not None)
+        if target:
             parts=PurePosixPath(file).parts
-            if '..' in parts or file.startswith('/') or type(item.get('size')) is not int or item['size']<=0:raise ValueError('Invalid Parquet path/size')
-            files.append(item)
-    if not files:raise ValueError('Official dataset has no Parquet export for selected configuration/split')
+            if '..' in parts or file.startswith('/') or type(item.get('size')) is not int or item['size']<=0:
+                raise ValueError('Invalid Parquet path/size')
+            files.append(dict(item,path=file))
+    if progress is not None:
+        progress['parquet_discovery']=dict(method='immutable_dataset_info_with_blobs',revision=commit,
+            file_count=len(siblings),parquet_file_count=len(parquet_paths),matching_file_count=len(files),
+            path_preview=sorted(parquet_paths)[:20])
+    preserve(root/'raw/parquet-files-metadata.json',listing_bytes)
+    if not files:raise ValueError('Official dataset has no Parquet export for selected configuration/split; see parquet_discovery')
     files.sort(key=lambda f:f['path'])
     if limits.get('max_parquet_shards')!=1:raise ValueError('Pilot requires exactly one Parquet shard maximum')
     file=files[0]
     url=f'https://huggingface.co/datasets/{repo}/resolve/{commit}/{urllib.parse.quote(file["path"],safe="/")}'
-    lfs=file.get('lfs') or {};full_sha=lfs.get('oid') or lfs.get('sha256')
-    if full_sha is not None and not re.fullmatch('[a-f0-9]{64}',full_sha):raise ValueError('Invalid source LFS hash')
-    snapshot=dict(repository=repo,revision=commit,directory=directory,file_path=file['path'],file_size=file['size'],publisher_sha256=full_sha,info_sha256=hashlib.sha256(info_bytes).hexdigest(),listing_sha256=hashlib.sha256(tree_bytes).hexdigest())
-    snapshot_bytes=stable_json(snapshot)
-    preserve(root/'raw/parquet-snapshot.json',snapshot_bytes)
+    lfs=file.get('lfs') or {};full_sha=lfs.get('sha256') or lfs.get('oid')
+    if full_sha is not None and (not isinstance(full_sha,str) or not re.fullmatch('[a-f0-9]{64}',full_sha)):
+        raise ValueError('Invalid source LFS hash')
+    snapshot=dict(repository=repo,revision=commit,directory=directory,file_path=file['path'],file_size=file['size'],publisher_sha256=full_sha,info_sha256=hashlib.sha256(info_bytes).hexdigest(),listing_sha256=hashlib.sha256(listing_bytes).hexdigest(),listing_method='immutable_dataset_info_with_blobs')
+    snapshot_path=root/'raw/parquet-snapshot.json'
+    if snapshot_path.exists():
+        old_bytes=snapshot_path.read_bytes();old=json.loads(old_bytes)
+        keys=['repository','revision','directory','file_path','file_size','publisher_sha256']
+        if any(old.get(key)!=snapshot[key] for key in keys):
+            raise ValueError('Existing immutable source differs; choose a new dataset root')
+        snapshot=old;snapshot_bytes=old_bytes
+    else:
+        snapshot_bytes=stable_json(snapshot);preserve(snapshot_path,snapshot_bytes)
     if progress is not None:progress.update(transport='hub_parquet',parquet_snapshot=snapshot,downloaded_hours=None,transfer_scope='Range blocks may contain unselected audio; selected_audio_hours is measured separately')
     media=RangeFile(fetcher,url,file['size'],limits['parquet_block_bytes'],full_sha)
     provider=pq.ParquetFile(media)

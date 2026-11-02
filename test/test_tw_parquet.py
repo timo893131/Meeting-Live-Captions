@@ -79,6 +79,12 @@ class RangeTests(unittest.TestCase):
 
 class ParquetTests(unittest.TestCase):
     def test_official_export_fixture_retains_only_fifteen_original_audio_records(self):
+        self.assert_export_fixture('cmn_hant_tw/validation/0000.parquet')
+
+    def test_flat_layout_reuses_legacy_snapshot_without_changing_reference_hash(self):
+        self.assert_export_fixture('cmn_hant_tw/validation-00000-of-00001.parquet',legacy=True)
+
+    def assert_export_fixture(self,path,legacy=False):
         import pyarrow as pa
         import pyarrow.parquet as pq
         with tempfile.TemporaryDirectory() as folder:
@@ -94,14 +100,19 @@ class ParquetTests(unittest.TestCase):
                 rows.append(dict(audio=dict(bytes=buffer.getvalue(),path=f'synthetic-{index}.wav'),raw_transcription=f'SYNTHETIC CONTRACT TEST {index}',id=index))
             table=pa.Table.from_pylist(rows);temp=root/'fixture.parquet';pq.write_table(table,temp,compression='NONE',row_group_size=16);data=temp.read_bytes()
             card=b'---\nlicense:\n- cc-by-4.0\n---\nSynthetic test card only'
-            sha='a'*40;path='cmn_hant_tw/validation/0000.parquet'
+            sha='a'*40
+            legacy_bytes=None
+            if legacy:
+                legacy_bytes=json.dumps(dict(repository='google/fleurs',revision=sha,directory='cmn_hant_tw/validation',file_path=path,file_size=len(data),publisher_sha256=hashlib.sha256(data).hexdigest(),info_sha256='old-info',listing_sha256='old-listing')).encode()
+                (root/'raw/parquet-snapshot.json').write_bytes(legacy_bytes)
             class Opener:
                 def open(self,req,**kwargs):
                     url=req.full_url
                     if url.endswith('robots.txt'):return Response(b'User-agent: *\nAllow: /\n')
                     if url==cfg['source']['card_url']:return Response(card)
+                    if url.endswith('?blobs=true'):return Response(json.dumps(dict(sha=sha,siblings=[dict(rfilename=path,size=len(data),lfs=dict(sha256=hashlib.sha256(data).hexdigest()))])).encode())
                     if '/revision/' in url:return Response(json.dumps(dict(sha=sha)).encode())
-                    if '/tree/' in url:return Response(json.dumps([dict(type='file',path=path,size=len(data),lfs=dict(oid=hashlib.sha256(data).hexdigest()))]).encode())
+                    if '/tree/' in url:raise AssertionError('Nested tree endpoint must not be called')
                     if '/resolve/' in url:
                         a,b=map(int,req.get_header('Range').removeprefix('bytes=').split('-'))
                         return Response(data[a:b+1],206,{'Content-Range':f'bytes {a}-{b}/{len(data)}'})
@@ -111,11 +122,45 @@ class ParquetTests(unittest.TestCase):
             self.assertEqual(len(records),15);self.assertEqual(failures,[])
             self.assertEqual(progress['parquet_rows_loaded_in_blocks'],16);self.assertEqual(progress['parquet_rows_materialized'],15)
             self.assertIsNone(progress['downloaded_hours'])
+            if legacy:
+                self.assertEqual((root/'raw/parquet-snapshot.json').read_bytes(),legacy_bytes)
+                self.assertTrue(all(row['provider_rows_sha256']==hashlib.sha256(legacy_bytes).hexdigest() for row in records))
             for i,row in enumerate(records):
                 self.assertEqual((root/row['audio_filepath']).read_bytes(),rows[i]['audio']['bytes'])
                 self.assertFalse(row['training_ready']);self.assertFalse(row['local_reference_verified']);self.assertIsNone(row['speaker_id']);self.assertEqual(row['split'],'unassigned')
             before=fetcher.state['requests'];again,_=pilot.collect(root,cfg,fetcher,{})
             self.assertEqual(again,records);self.assertEqual(before,fetcher.state['requests'])
+
+
+@unittest.skipUnless(importlib.util.find_spec('pyarrow'), 'pyarrow required')
+class DiscoveryTests(unittest.TestCase):
+    def test_missing_selected_split_reports_actual_paths_without_audio_requests(self):
+        from tw_parquet_source import collect_parquet
+        from types import SimpleNamespace
+        for path in ['cmn_hans_cn/validation/0000.parquet','cmn_hant_tw/train/0000.parquet']:
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as folder:
+                root=Path(folder);(root/'raw').mkdir();calls=[];progress={};sha='b'*40
+                def get(url,**kwargs):
+                    calls.append(url)
+                    if url.endswith('?blobs=true'):
+                        return json.dumps(dict(sha=sha,siblings=[dict(rfilename=path,size=10)])).encode()
+                    if '/revision/' in url:return json.dumps(dict(sha=sha)).encode()
+                    raise AssertionError('No audio or tree request allowed')
+                with self.assertRaisesRegex(ValueError,'no Parquet export'):
+                    collect_parquet(root,config(),SimpleNamespace(get=get),progress)
+                self.assertEqual(progress['parquet_discovery']['matching_file_count'],0)
+                self.assertEqual(progress['parquet_discovery']['path_preview'],[path])
+                self.assertEqual(len(calls),2)
+                self.assertTrue((root/'raw/parquet-files-metadata.json').exists())
+
+    def test_metadata_revision_mismatch_rejected(self):
+        from tw_parquet_source import collect_parquet
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as folder:
+            def get(url,**kwargs):
+                return json.dumps(dict(sha=('c' if url.endswith('?blobs=true') else 'b')*40,siblings=[])).encode()
+            with self.assertRaisesRegex(ValueError,'does not match immutable revision'):
+                collect_parquet(Path(folder),config(),SimpleNamespace(get=get),{})
 
 
 if __name__=='__main__':unittest.main()
