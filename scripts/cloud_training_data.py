@@ -119,8 +119,14 @@ def main():
     parser.add_argument('--root')
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
+    root = Path(args.root or config['data']['root']).resolve()
+    missing = [config['data'][split+'_manifest'] for split in ['train','validation','test'] if not (root/config['data'][split+'_manifest']).is_file()]
     try:
-        report, _ = inspect_manifests(config, args.root)
+        if missing:
+            report = dict(status='blocked', reason='missing_manifests', data_root=str(root), missing_files=missing,
+                          next_step='Prepare reviewed and grouped training/evaluation manifests; a downloaded pilot alone is not training-ready.', training_started=False)
+        else:
+            report, _ = inspect_manifests(config, args.root)
     except (OSError, ValueError) as error:
         report = dict(status='blocked', reason=type(error).__name__, training_started=False)
     print(json.dumps(report, ensure_ascii=False, indent=2))

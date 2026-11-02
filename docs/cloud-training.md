@@ -51,3 +51,11 @@ python scripts/train_cloud_whisper.py \
 Notebook不輸出真實即時P50/P95；正式採用前仍需正常速度播放／真實麥克風測試。adapter之後須載入相同base revision合併、匯出，再用另一個已固定的轉換環境產生CTranslate2/int8並重測。當前Notebook不自動合併、上傳HF或部署Cloudflare；保留原模型fallback。
 
 本機驗證命令：`python3 -m unittest discover -s test -p test_cloud_training_data.py`，涵蓋權利／標籤／重複與跨split、防錯hash／路徑、test不進Trainer資料。Notebook所有code cell可用Python AST檢查；這些測試不需要GPU，也不是GPU訓練驗證。
+
+## 由上傳執行紀錄驗證與診斷
+
+一份上傳的Colab執行檔已顯示套件安裝returncode=0、Tesla T4約14.56GiB、PyTorch 2.11.0+cu130／CUDA 13.0、Drive掛載成功。這是檔案中的歷史輸出，不是本工具直接連入GPU；該檔沒有訓練執行結果，也未測模型forward或訓練套件匯入，因此前述GPU訓練／resume未驗證狀態仍成立。
+
+該檔的RUN_COLLECTION仍為False；資料預檢退出1，但舊版subprocess stdout未存進Notebook，只有CalledProcessError，不能由此確定Drive裡是哪個檔案／欄位有問題。新版改為逐行保存子程序stdout/stderr、列出缺少的manifest，資料未ready時顯示原因並維持訓練關閉；GPU格另加CUDA小矩陣與訓練套件import檢查，仍不下載模型或開始訓練。
+
+新版安裝格會fetch遠端選定ref後checkout固定commit，避免已有main停在舊版；若repo有本地修改會停止保留內容。請重新開啟新版Notebook由上執行，首次蒐集時將RUN_COLLECTION改True，RUN_TRAINING保持False。15段下載不會自動變成人工稿或正式分組，預檢仍需實際審核manifest。
