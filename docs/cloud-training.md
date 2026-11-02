@@ -64,3 +64,11 @@ Notebook不輸出真實即時P50/P95；正式採用前仍需正常速度播放�
 第二份上傳紀錄已確認：T4 CUDA矩陣測試通過，Transformers 4.46.3、PEFT 0.14.0、Accelerate 1.2.1、HF Hub 0.27.1匯入成功；Drive已掛載。資料收集仍為False，預檢明確列缺少三份manifests，沒有訓練。這將問題定位到尚未進行資料準備，而不是已完成微調。
 
 為避免一直執行「關閉下載→缺訓練資料」的流程，新版將初始階段設為collect且RUN_COLLECTION=True，授權與下載上限仍在collector強制檢查；訓練維持False。collect完成只引導到聽稿／近似去重／正式分組，不自動生成已核准標籤。最後一格在collect階段顯示下載摘要；只有train階段才顯示訓練結果。第一格pip回傳值不再重複顯示整份log。
+
+## 授權資料卡解析修正
+
+若出現 `Expected dataset license was not verified`，表示下載尚未通過授權gate，不代表可以直接把gate關閉。舊版只用單行正規表示式比對，無法辨識等價的YAML清單或引號。新版本使用PyYAML SafeLoader，支援 `license: cc-by-4.0`、帶引號、`license: [cc-by-4.0]`、多行清單與CRLF/BOM等格式；只有解析後的license集合完全等於預期值才繼續。不同／混合授權、缺欄位、重複key、惡意YAML標籤或無法解析時維持pending。
+
+每次會保留原始資料卡及SHA-256，寫入 `PILOT_ROOT/review/license-review.json`；collection-report也顯示實際declared_licenses、預期值與解析原因。這個修正沒有改來源設定中的授權預期，也不把格式修正當成實際資料卡已驗證的證據。根代理目前仍被HF proxy403擋下，尚無該次Colab資料卡內容，實際授權需以重跑後的報告確認。
+
+既有Colab工作階段只需重跑第一格（fetch新版與確認PyYAML），再跑資料準備格即可；沿用Drive中的完整檔cache，不必重抓已保存的資料卡。GPU檢查與Drive掛載若已完成，可保留目前狀態，訓練仍關閉。若授權確實不同，新版會列出宣告值並停止下載，不自動放寬允許值。

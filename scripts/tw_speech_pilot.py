@@ -181,20 +181,77 @@ class BoundedFetcher:
         raise RuntimeError('Redirect limit exceeded')
 
 
+class LicenseVerificationError(ValueError):
+    def __init__(self, message, details):
+        super().__init__(message)
+        self.license_details = details
+
+
 def check_license(card, expected):
-    # Fail closed instead of inferring a license from public availability.
-    frontmatter = card.split('---', 2)
-    if len(frontmatter) != 3 or frontmatter[0].strip():
-        raise ValueError('Dataset card has no supported YAML frontmatter')
-    if not re.search(r'^license:\s*'+re.escape(expected)+r'\s*$', frontmatter[1], re.M):
-        raise ValueError('Expected dataset license was not verified')
+    """Accept equivalent scalar/list YAML encodings, never a different license."""
+    import yaml
+
+    details = dict(status='pending', expected_license=expected, declared_licenses=None,
+                   parser='safe-yaml-exact-license-set-v1', yaml_version=yaml.__version__)
+
+    def reject(reason, message):
+        details['reason'] = reason
+        raise LicenseVerificationError(message, details)
+
+    lines = card.removeprefix('\ufeff').splitlines()
+    if not lines or lines[0].strip() != '---':
+        reject('missing_frontmatter', 'Dataset card has no YAML frontmatter')
+    closing = next((i for i in range(1, len(lines)) if lines[i].strip() == '---'), None)
+    if closing is None:
+        reject('missing_frontmatter_end', 'Dataset card YAML frontmatter is not closed')
+
+    class UniqueSafeLoader(yaml.SafeLoader):
+        pass
+
+    def unique_mapping(loader, node, deep=False):
+        loader.flatten_mapping(node)
+        mapping = {}
+        for key_node, value_node in node.value:
+            key = loader.construct_object(key_node, deep=deep)
+            if key in mapping:
+                raise yaml.constructor.ConstructorError(None, None, 'Duplicate YAML key', key_node.start_mark)
+            mapping[key] = loader.construct_object(value_node, deep=deep)
+        return mapping
+
+    UniqueSafeLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, unique_mapping)
+    try:
+        metadata = yaml.load('\n'.join(lines[1:closing]), Loader=UniqueSafeLoader)
+    except (yaml.YAMLError, TypeError):
+        reject('invalid_yaml', 'Dataset card YAML is malformed, duplicated or uses an unsupported tag')
+    if not isinstance(metadata, dict):
+        reject('invalid_metadata', 'Dataset card metadata must be a mapping')
+    value = metadata.get('license')
+    licenses = [value] if isinstance(value, str) else value
+    if not isinstance(licenses, list) or not licenses or len(licenses)>20 or any(not isinstance(item, str) or not re.fullmatch(r'[A-Za-z0-9.+-]{1,100}', item.strip()) for item in licenses):
+        details['declared_type'] = type(value).__name__
+        reject('unsupported_license_value', 'Dataset license is missing or not a supported SPDX identifier/list')
+    licenses = sorted(set(item.strip().lower() for item in licenses))
+    details['declared_licenses'] = licenses
+    if not isinstance(expected, str) or licenses != [expected.strip().lower()]:
+        reject('license_mismatch', 'Dataset license mismatch: expected '+str(expected)+'; declared '+', '.join(licenses))
+    details.update(status='approved', reason='exact_expected_license')
+    return details
 
 
-def collect(root, config, fetcher):
+def collect(root, config, fetcher, progress=None):
     source = config['source']
     card_bytes = fetcher.get(source['card_url'], max_bytes=1048576)
-    check_license(card_bytes.decode('utf8'), source['expected_license'])
     preserve_bytes(root/'raw/dataset-card.md', card_bytes)
+    try:
+        license_review = check_license(card_bytes.decode('utf8'), source['expected_license'])
+    except LicenseVerificationError as error:
+        error.license_details.update(source_url=source['card_url'], card_sha256=sha256(card_bytes))
+        atomic_json(root/'review/license-review.json', error.license_details)
+        raise
+    license_review.update(source_url=source['card_url'], card_sha256=sha256(card_bytes))
+    atomic_json(root/'review/license-review.json', license_review)
+    if progress is not None:
+        progress['license_review'] = license_review
     metadata = fetcher.get(source['rows_url'], max_bytes=4194304)
     document = json.loads(metadata)
     rows = document.get('rows')
@@ -259,7 +316,7 @@ def main():
             report['source_review'] = dict(url=review_source['metadata_url'], sha256=sha256(metadata), license_status='pending_release_data_card', audio_downloaded=False)
         except Exception as review_error:
             report['source_review'] = dict(status='blocked_or_failed', reason=type(review_error).__name__)
-        records, failures = collect(root, config, fetcher)
+        records, failures = collect(root, config, fetcher, progress=report)
         report.update(audio_downloaded=len(records), failures=failures, downloaded_hours=None if records else 0, pending_review_hours=None if records else 0)
         if args.prepare and records:
             from tw_audio_prepare import prepare_records
@@ -289,6 +346,8 @@ def main():
     except Exception as error:
         report['status'] = 'blocked_or_failed'
         report['failures'].append(dict(type=type(error).__name__, reason=str(error).split('?')[0][:250]))
+        if isinstance(error, LicenseVerificationError):
+            report['license_review'] = error.license_details
     report.update(finished_at=now(), http_requests_cumulative=fetcher.state['requests'], http_body_bytes_cumulative=fetcher.state['body_bytes'])
     atomic_json(root/'reports/collection-report.json', report)
     print(json.dumps(report, ensure_ascii=False, indent=2))

@@ -128,9 +128,42 @@ class FetchTests(unittest.TestCase):
             self.assertEqual(records, resumed)
 
     def test_license_is_checked_from_card_not_public_availability(self):
-        pilot.check_license('---\nlicense: cc-by-4.0\n---\nDescription', 'cc-by-4.0')
+        values = ['cc-by-4.0', '"cc-by-4.0"', "'cc-by-4.0'", '[cc-by-4.0]', '\n- cc-by-4.0', '\n  - cc-by-4.0', 'cc-by-4.0 # provider comment']
+        for value in values:
+            report=pilot.check_license('---\nlicense: '+value+'\n---\nDescription', 'cc-by-4.0')
+            self.assertEqual(report['status'],'approved')
+            self.assertEqual(report['declared_licenses'],['cc-by-4.0'])
+        report=pilot.check_license('\ufeff---\r\nlicense: [CC-BY-4.0]\r\n---\r\nBody','cc-by-4.0')
+        self.assertEqual(report['status'],'approved')
         for card in ['Publicly available', '---\nlicense: unknown\n---\nDescription']:
             with self.assertRaises(ValueError):pilot.check_license(card, 'cc-by-4.0')
+
+    def test_mixed_different_duplicate_and_unsafe_license_yaml_cannot_approve(self):
+        fields=['license: cc-by-sa-4.0','license: [cc-by-4.0, cc-by-nc-4.0]','license: []','license: 42','dataset_info: {license: cc-by-4.0}','license: unknown\nlicense: cc-by-4.0','license: !!python/object/apply:builtins.print [unsafe]']
+        for field in fields:
+            with self.assertRaises(pilot.LicenseVerificationError) as caught:
+                pilot.check_license('---\n'+field+'\n---\nlicense: cc-by-4.0','cc-by-4.0')
+            self.assertEqual(caught.exception.license_details['status'],'pending')
+        with self.assertRaises(pilot.LicenseVerificationError) as caught:
+            pilot.check_license('---\nlicense: [cc-by-4.0, cc-by-nc-4.0]\n---','cc-by-4.0')
+        self.assertEqual(caught.exception.license_details['declared_licenses'],['cc-by-4.0','cc-by-nc-4.0'])
+
+    def test_failed_license_keeps_evidence_and_never_fetches_rows_or_audio(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);config=self.config();calls=[]
+            card=b'---\nlicense:\n- cc-by-nc-4.0\n---\nSynthetic test card'
+            class Fetcher:
+                def get(self,url,**kwargs):
+                    calls.append(url)
+                    if url!=config['source']['card_url']:raise AssertionError('Rows/audio fetched before license approval')
+                    return card
+            with self.assertRaises(pilot.LicenseVerificationError):pilot.collect(root,config,Fetcher())
+            review=json.loads((root/'review/license-review.json').read_text())
+            self.assertEqual(calls,[config['source']['card_url']])
+            self.assertEqual(review['status'],'pending')
+            self.assertEqual(review['declared_licenses'],['cc-by-nc-4.0'])
+            self.assertEqual(review['card_sha256'],pilot.sha256(card))
+            self.assertEqual((root/'raw/dataset-card.md').read_bytes(),card)
 
 
 class BaselineTests(unittest.TestCase):
