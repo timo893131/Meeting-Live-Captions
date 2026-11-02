@@ -28,6 +28,7 @@ class FetchTests(unittest.TestCase):
     def config(self):
         config = json.loads((ROOT/'sources/taiwan-mandarin-pilot.json').read_text())
         config['limits']['interval_seconds'] = 0
+        config['source']['transport'] = 'viewer_rows'
         return config
 
     def test_resume_verifies_cached_bytes_and_does_not_download_twice(self):

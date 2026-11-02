@@ -15,12 +15,19 @@
     "max_retries": 1,
     "timeout_seconds": 20,
     "max_wall_seconds": 600,
-    "max_redirects": 4
+    "max_redirects": 4,
+    "parquet_block_bytes": 4194304,
+    "max_parquet_group_uncompressed_bytes": 268435456,
+    "max_parquet_shards": 1
   },
   "allowed_hosts": [
     "huggingface.co",
     "datasets-server.huggingface.co",
-    "raw.githubusercontent.com"
+    "raw.githubusercontent.com",
+    "cdn-lfs.huggingface.co",
+    "cdn-lfs-us-1.huggingface.co",
+    "cas-bridge.xethub.hf.co",
+    "us.aws.cdn.hf.co"
   ],
   "source": {
     "id": "google-fleurs-cmn-hant-tw",
@@ -33,7 +40,11 @@
     "attribution": "FLEURS: Few-shot Learning Evaluation of Universal Representations of Speech, Conneau et al., Google, 2022; retain retrieved data card and upstream attribution notices.",
     "corpus_kind": "read_speech_not_general_conversation",
     "speaker_mapping": "unknown_unless_provider_has_explicit_speaker_id",
-    "reference_status": "provider_reference"
+    "reference_status": "provider_reference",
+    "transport": "hub_parquet",
+    "parquet_revision": "refs/convert/parquet",
+    "parquet_directory": "cmn_hant_tw/validation",
+    "repository_id": "google/fleurs"
   },
   "other_sources_review_only": [
     {

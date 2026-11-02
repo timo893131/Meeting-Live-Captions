@@ -69,7 +69,7 @@ class BoundedFetcher:
     def save(self):
         atomic_json(self.state_path, self.state)
 
-    def request(self, url):
+    def request(self, url, headers=None):
         self.check_url(url)
         if self.state['body_bytes'] >= self.limits['max_total_body_bytes']:
             raise RuntimeError('Cumulative body-byte budget exhausted')
@@ -83,7 +83,9 @@ class BoundedFetcher:
         self.state['requests'] += 1
         self.last = time.monotonic()
         self.save()
-        return self.opener.open(urllib.request.Request(url, headers={'User-Agent': UA}), timeout=self.limits['timeout_seconds'])
+        request_headers = {'User-Agent': UA, 'Accept-Encoding': 'identity'}
+        request_headers.update(headers or {})
+        return self.opener.open(urllib.request.Request(url, headers=request_headers), timeout=self.limits['timeout_seconds'])
 
     def robots_allowed(self, url):
         parsed = urllib.parse.urlsplit(url)
@@ -97,11 +99,17 @@ class BoundedFetcher:
         if not self.robots[origin].can_fetch(UA, url):
             raise RuntimeError('robots.txt disallows this URL')
 
-    def get(self, url, robots=True, allow_404=False, max_bytes=None):
+    def get(self, url, robots=True, allow_404=False, max_bytes=None, byte_range=None, total_size=None):
         self.check_url(url)
         if robots:
             self.robots_allowed(url)
-        key = sha256(url.encode())
+        if byte_range is not None:
+            start, end = byte_range
+            if type(start) is not int or type(end) is not int or type(total_size) is not int or not 0 <= start <= end < total_size:
+                raise ValueError('Invalid byte range')
+            key = sha256(f'{url}\nRange:{start}-{end}/{total_size}'.encode())
+        else:
+            key = sha256(url.encode())
         cached = self.state['cache'].get(key)
         if cached:
             file = self.cache/key
@@ -110,14 +118,22 @@ class BoundedFetcher:
                 raise RuntimeError('Cached download hash mismatch')
             return data
         limit = min(max_bytes or self.limits['max_file_bytes'], self.limits['max_file_bytes'])
+        if byte_range is not None:
+            if end-start+1 > limit:
+                raise ValueError('Requested range exceeds file-response limit')
+            request_headers = {'Range': f'bytes={start}-{end}'}
+        else:
+            request_headers = None
         current = url
         for redirect in range(self.limits['max_redirects']+1):
             response = None
             for attempt in range(self.limits['max_retries']+1):
                 try:
-                    response = self.request(current)
+                    response = self.request(current, headers=request_headers)
                     break
                 except urllib.error.HTTPError as error:
+                    parsed_error = urllib.parse.urlsplit(current)
+                    error.pilot_request = dict(status=error.code, host=parsed_error.hostname, path=parsed_error.path)
                     if error.code in (301, 302, 303, 307, 308):
                         location = error.headers.get('Location')
                         if not location:
@@ -146,7 +162,20 @@ class BoundedFetcher:
             if response is None:
                 continue
             with response:
+                if byte_range is not None:
+                    expected_range = f'bytes {start}-{end}/{total_size}'
+                    if response.status != 206 or response.headers.get('Content-Range') != expected_range:
+                        raise RuntimeError('Server did not honor the exact byte range; full download refused')
                 length = response.headers.get('Content-Length')
+                if byte_range is not None:
+                    range_length = end-start+1
+                    if length and int(length) != range_length:
+                        raise RuntimeError('Inconsistent range Content-Length')
+                    if self.state['body_bytes']+range_length > self.limits['max_total_body_bytes']:
+                        raise RuntimeError('Download body-byte budget exhausted')
+                    # Reserve known range bytes once; interrupted ranges stay conservatively charged.
+                    self.state['body_bytes'] += range_length
+                    self.save()
                 if length and int(length) > limit:
                     raise RuntimeError('File exceeds configured byte limit')
                 chunks = []
@@ -154,21 +183,24 @@ class BoundedFetcher:
                 while True:
                     if time.monotonic()-self.started >= self.limits['max_wall_seconds']:
                         raise RuntimeError('Wall-time budget exhausted')
-                    remaining = min(limit-size, self.limits['max_total_body_bytes']-self.state['body_bytes'])
+                    remaining = (range_length-size) if byte_range is not None else min(limit-size, self.limits['max_total_body_bytes']-self.state['body_bytes'])
                     if remaining <= 0:
                         raise RuntimeError('Download body-byte budget exhausted')
                     block = response.read(min(65536, remaining))
                     if not block:
                         break
                     size += len(block)
-                    self.state['body_bytes'] += len(block)
-                    self.save()
+                    if byte_range is None:
+                        self.state['body_bytes'] += len(block)
+                        self.save()
                     if size > limit or self.state['body_bytes'] > self.limits['max_total_body_bytes']:
                         raise RuntimeError('Download body-byte budget exhausted')
                     chunks.append(block)
-                    if length and size == int(length):
+                    if (byte_range is not None and size == range_length) or (length and size == int(length)):
                         break
                 data = b''.join(chunks)
+                if byte_range is not None and len(data) != end-start+1:
+                    raise RuntimeError('Truncated byte-range response')
                 if length and size != int(length):
                     raise RuntimeError('Truncated HTTP response')
             file = self.cache/key
@@ -176,6 +208,9 @@ class BoundedFetcher:
             temporary.write_bytes(data)
             temporary.replace(file)
             self.state['cache'][key] = dict(url=url, final_host=urllib.parse.urlsplit(current).hostname, sha256=sha256(data), fetched_at=now(), size=size)
+            if byte_range is not None:
+                self.state['cache'][key]['byte_range'] = [start,end]
+                self.state['cache'][key]['total_size'] = total_size
             self.save()
             return data
         raise RuntimeError('Redirect limit exceeded')
@@ -252,6 +287,9 @@ def collect(root, config, fetcher, progress=None):
     atomic_json(root/'review/license-review.json', license_review)
     if progress is not None:
         progress['license_review'] = license_review
+    if source.get('transport','viewer_rows') == 'hub_parquet':
+        from tw_parquet_source import collect_parquet
+        return collect_parquet(root,config,fetcher,progress)
     metadata = fetcher.get(source['rows_url'], max_bytes=4194304)
     document = json.loads(metadata)
     rows = document.get('rows')
@@ -338,7 +376,8 @@ def main():
             seconds = sum(row.get('duration') or 0 for row in result['records'])
             report['measured_decoded_hours'] = seconds/3600
             complete_durations = all(isinstance(row.get('duration'), (int, float)) for row in result['records'])
-            report['downloaded_hours'] = seconds/3600 if complete_durations else None
+            report['selected_audio_hours'] = seconds/3600 if complete_durations else None
+            report['downloaded_hours'] = None if report.get('transport') == 'hub_parquet' else (seconds/3600 if complete_durations else None)
             report['pending_review_hours'] = seconds/3600 if complete_durations else None
             report['pilot_sample_target_met'] = 10 <= len(records) <= 20
             report['quality_gate'] = 'pending_reference_and_near_duplicate_review'
@@ -346,9 +385,11 @@ def main():
     except Exception as error:
         report['status'] = 'blocked_or_failed'
         report['failures'].append(dict(type=type(error).__name__, reason=str(error).split('?')[0][:250]))
+        if hasattr(error,'pilot_request'):
+            report['failed_request'] = error.pilot_request
         if isinstance(error, LicenseVerificationError):
             report['license_review'] = error.license_details
-    report.update(finished_at=now(), http_requests_cumulative=fetcher.state['requests'], http_body_bytes_cumulative=fetcher.state['body_bytes'])
+    report.update(finished_at=now(), http_requests_cumulative=fetcher.state['requests'], http_body_bytes_cumulative=fetcher.state['body_bytes'], body_byte_accounting='Ordinary bodies measured; range lengths reserved before transfer, including failed reservations')
     atomic_json(root/'reports/collection-report.json', report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     if report['status'] in ('blocked_or_failed', 'no_audio_collected'):

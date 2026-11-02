@@ -105,3 +105,5 @@ CER重用現有NFC／去標點空白版本與字元S/D/I/N，不轉繁簡、不�
 本工作沒有改動既有教會資料權利；TWGBR仍限已允許的盤點／技術檢查，不加入本次訓練。token／費用未提供metadata，記unavailable；不宣稱節省率。
 
 後續運算平台已由使用者選定 **Google Colab，先嘗試免費GPU**。本環境繼續資料準備；[雲端訓練方案及Notebook](../cloud-training.md)已提供20步LoRA smoke、資料gate與Drive checkpoint。GPU實跑未完成，不代表當前pilot已可訓練。
+
+後續Colab證據：授權已明確匹配CC-BY-4.0，但metadata階段HTTP500，音訊仍0。來源設定已切換到同一官方HF資料庫的Parquet匯出，支援有預算的Range讀取與不可變revision；不是取消授權／擷取規則或改用未驗證鏡像。詳細傳輸限制與未知時數處理見[cloud-training.md](../cloud-training.md)。實際匯出存在性與下載仍待Colab執行，訓練保持關閉。
