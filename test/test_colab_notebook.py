@@ -40,6 +40,34 @@ class ColabNotebookTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()),self.assertRaisesRegex(RuntimeError,'exit 1'):
             self.helper()([sys.executable,'-c','raise SystemExit(1)'])
 
+    def test_collect_stage_runs_bounded_download_to_separate_drive_pilot_root(self):
+        with tempfile.TemporaryDirectory() as folder:
+            pilot=Path(folder)/'pilots/taiwan-mandarin-v1'
+            (pilot/'reports').mkdir(parents=True)
+            (pilot/'reports/collection-report.json').write_text('{"status":"synthetic_test_only","audio_downloaded":0}')
+            calls=[]
+            def fake_step(command,**kwargs):
+                calls.append((command,kwargs))
+                return subprocess.CompletedProcess(command,0,stdout='')
+            namespace=dict(WORKFLOW_STAGE='collect',PILOT_ROOT=pilot,REPO=ROOT,sys=sys,run_step=fake_step)
+            cell=next(c for c in self.notebook()['cells'] if c.get('id')=='cloud-whisper-06')
+            with contextlib.redirect_stdout(io.StringIO()):exec(''.join(cell['source']),namespace)
+            self.assertEqual(len(calls),1)
+            self.assertTrue(namespace['RUN_COLLECTION'])
+            self.assertIn(str(pilot),calls[0][0])
+            self.assertIn('--prepare',calls[0][0])
+            self.assertFalse(calls[0][1]['require_success'])
+
+    def test_collect_stage_skips_formal_preflight_and_training_even_if_training_toggle_true(self):
+        def forbidden(*args,**kwargs):raise AssertionError('Training command must not execute in collect stage')
+        namespace=dict(WORKFLOW_STAGE='collect',run_step=forbidden)
+        cell=next(c for c in self.notebook()['cells'] if c.get('id')=='cloud-whisper-08')
+        with contextlib.redirect_stdout(io.StringIO()):exec(''.join(cell['source']),namespace)
+        self.assertFalse(namespace['DATA_READY'])
+        cell=next(c for c in self.notebook()['cells'] if c.get('id')=='cloud-whisper-10')
+        source=''.join(cell['source']).replace('RUN_TRAINING = False','RUN_TRAINING = True')
+        with contextlib.redirect_stdout(io.StringIO()):exec(source,namespace)
+
     def test_missing_manifest_cli_lists_inputs_without_starting_training(self):
         with tempfile.TemporaryDirectory() as folder:
             result=subprocess.run([sys.executable,str(ROOT/'scripts/cloud_training_data.py'),'--root',folder],cwd=ROOT,capture_output=True,text=True)

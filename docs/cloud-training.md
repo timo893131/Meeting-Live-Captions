@@ -6,16 +6,16 @@
 
 ## 實作狀態
 
-已準備 Notebook、固定版本依賴、雲端設定、資料gate、LoRA訓練及checkpoint續跑程式。資料gate測試與Notebook語法檢查已在本機完成；**GPU訓練、雲端依賴安裝、模型下載、checkpoint續跑與訓練成效尚未在Colab實跑**，不能宣稱雲端訓練流程已驗證成功。
+已準備 Notebook、固定版本依賴、雲端設定、資料gate、LoRA訓練及checkpoint續跑程式。資料gate測試與Notebook語法檢查已在本機完成；**GPU訓練、模型下載、checkpoint續跑與訓練成效尚未在Colab實跑**，不能宣稱雲端訓練流程已驗證成功。
 
-目前收集的pilot沒有正式train-ready配對資料；先前教會腳本修訂也不是完整人工逐字稿。切換雲端只改變運算位置，不會把pending資料升格成訓練資料。Colab有獨立網路，Codex環境的proxy403不表示它一定同樣受阻，但也不保證來源可下載；Notebook提供預設關閉的15段收集cell。
+目前收集的pilot沒有正式train-ready配對資料；先前教會腳本修訂也不是完整人工逐字稿。切換雲端只改變運算位置，不會把pending資料升格成訓練資料。Colab有獨立網路，Codex環境的proxy403不表示它一定同樣受阻，但也不保證來源可下載；Notebook提供預設啟用、受授權檢查與容量限制的15段收集cell。
 
 ## 執行順序
 
 1. 開啟Notebook並選擇GPU執行階段；建議約16GiB可用顯存，實際以Notebook列出的硬體為準。
 2. 複製repo、安裝 training/requirements-colab.txt，保留Colab已配對CUDA的PyTorch。首次run記錄實際程式commit、模型精確revision與主要套件版本；resume不得靜默換版本。
-3. 掛載自己的Drive，將音檔及三份manifest放在 `meeting-live-captions/data`，輸出放 `meeting-live-captions/runs/<run-id>`。掛載由使用者在Colab完成，不在聊天提供登入資料。
-4. 執行資料檢查。通過後才將Notebook中的 `RUN_TRAINING` 改為True，預設只跑20 steps的smoke。沒有通過時，訓練CLI也會再次拒絕，不存在略過gate的選項。
+3. 掛載自己的Drive。預設 WORKFLOW_STAGE=collect，嘗試15段並將原音、工作副本與報告存到 `meeting-live-captions/pilots/taiwan-mandarin-v1`，完整檔cache可續抓。正式人工審核資料另放 `meeting-live-captions/data`，訓練輸出放 `meeting-live-captions/runs/<run-id>`；不互相覆寫。
+4. 校對與分組完成後，將 WORKFLOW_STAGE 改為train並執行正式資料檢查；collect階段不提前檢查缺少的訓練manifest。通過後才將Notebook中的 `RUN_TRAINING` 改為True，預設只跑20 steps的smoke。沒有通過時，訓練CLI也會再次拒絕，不存在略過gate的選項。
 5. checkpoint每10步保存到Drive，並在validation以CER選擇已保存候選；adapter／processor與報告分attempt保存。完成run不覆寫；中斷後指定原RUN_DIR及RESUME=True，且需已存在checkpoint。若尚未存第一個checkpoint，使用新的run目錄重跑。
 
 目前雲端trainer使用原始 `openai/whisper-small`，不使用CTranslate2 int8作反向傳播。首次由HF解析commit並查模型license（MIT／Apache-2.0），固定後寫run-lock。Whisper 16k mono PCM16→feature extractor→small的80-bin log-mel及token labels，按模型token上限拒絕過長稿，不靜默截斷。全精度base保留於GPU，訓練採FP16 autocast，LoRA只更新q_proj/v_proj；不依賴bitsandbytes／4bit。
@@ -59,3 +59,8 @@ Notebook不輸出真實即時P50/P95；正式採用前仍需正常速度播放�
 該檔的RUN_COLLECTION仍為False；資料預檢退出1，但舊版subprocess stdout未存進Notebook，只有CalledProcessError，不能由此確定Drive裡是哪個檔案／欄位有問題。新版改為逐行保存子程序stdout/stderr、列出缺少的manifest，資料未ready時顯示原因並維持訓練關閉；GPU格另加CUDA小矩陣與訓練套件import檢查，仍不下載模型或開始訓練。
 
 新版安裝格會fetch遠端選定ref後checkout固定commit，避免已有main停在舊版；若repo有本地修改會停止保留內容。請重新開啟新版Notebook由上執行，首次蒐集時將RUN_COLLECTION改True，RUN_TRAINING保持False。15段下載不會自動變成人工稿或正式分組，預檢仍需實際審核manifest。
+
+
+第二份上傳紀錄已確認：T4 CUDA矩陣測試通過，Transformers 4.46.3、PEFT 0.14.0、Accelerate 1.2.1、HF Hub 0.27.1匯入成功；Drive已掛載。資料收集仍為False，預檢明確列缺少三份manifests，沒有訓練。這將問題定位到尚未進行資料準備，而不是已完成微調。
+
+為避免一直執行「關閉下載→缺訓練資料」的流程，新版將初始階段設為collect且RUN_COLLECTION=True，授權與下載上限仍在collector強制檢查；訓練維持False。collect完成只引導到聽稿／近似去重／正式分組，不自動生成已核准標籤。最後一格在collect階段顯示下載摘要；只有train階段才顯示訓練結果。第一格pip回傳值不再重複顯示整份log。
