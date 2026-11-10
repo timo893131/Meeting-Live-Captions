@@ -94,3 +94,5 @@
 2. 聽審 artifacts/vocab-prompting/twgbr-eval-v1-run1/listening-review.csv 的差異窗格，標出正確條件；達一定數量後才可說提示是否改善。
 3. 向臺灣福音書房確認 internal_evaluation／training 用途；確認前不擴大音訊下載。
 4. 審查通過的詞再寫入 glossary.js 候選並跑 `npm run eval:glossary` 正反例回測；瀏覽器 SpeechRecognition 不能吃 hotwords，網站端只能靠校正表。
+
+完整私人離線下載（全文＋全部音訊、資料夾結構說明）另見 [twgbr-archive.md](twgbr-archive.md)。
