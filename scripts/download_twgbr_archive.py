@@ -111,6 +111,10 @@ class Archive:
                 if line.strip():
                     row = json.loads(line); self.done[row['path']] = row
         self.errors = []; self.last = 0.0; self.requests = 0; self.downloaded_bytes = 0
+        self.verbose = True; self.added = 0
+        self.by_url = {}
+        for row in self.done.values():
+            self.by_url.setdefault((row['url'], row['kind']), []).append(row['path'])
         self.book_stats = {}
 
     # ---- network -------------------------------------------------------------------------
@@ -159,7 +163,8 @@ class Archive:
         row = dict(path=rel, url=url, kind=kind, bytes=data_len, sha256=digest, fetched_at=now(), **meta)
         with self.manifest_path.open('a', encoding='utf-8') as stream:
             stream.write(json.dumps(row, ensure_ascii=False)+'\n')
-        self.done[rel] = row
+        self.done[rel] = row; self.added += 1
+        self.by_url.setdefault((url, kind), []).append(rel)
         return row
 
     def save(self, rel, url, data, kind, **meta):
@@ -173,9 +178,9 @@ class Archive:
 
     def local_copy(self, url, kind):
         """A finished file already downloaded from the same URL (shared Samuel/Kings/Chronicles audio)."""
-        for row in self.done.values():
-            if row['url'] == url and row['kind'] == kind and self.have(row['path']):
-                return row
+        for path in self.by_url.get((url, kind), []):
+            if self.have(path):
+                return self.done[path]
         return None
 
     def get(self, rel, url, kind, **meta):
@@ -188,7 +193,7 @@ class Archive:
                 path = self.root/rel; path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(self.root/source['path'], path)
                 self.record(rel, url, source['bytes'], source['sha256'], kind, copied_from=source['path'], **meta)
-                print(f'  = {rel}（與 {source["path"]} 相同，本機複製）', flush=True)
+                self.say(f'  = {rel}（與 {source["path"]} 相同，本機複製）')
                 return True
         try:
             data = self.fetch(url)
@@ -203,8 +208,17 @@ class Archive:
             print(f'  ! {rel}: 不是 MP3 音訊', flush=True)
             return None
         self.save(rel, url, data, kind, **meta)
-        print(f'  + {rel} ({len(data):,} bytes)', flush=True)
+        self.say(f'  + {rel} ({len(data):,} bytes)')
         return data if kind.endswith('html') else True
+
+    def say(self, message):
+        if self.verbose:
+            print(message, flush=True)
+
+    def book_done(self, label, started_added, started_errors):
+        if not self.verbose:
+            print(f'    新增 {self.added-started_added} 個檔案、失敗 {len(self.errors)-started_errors} 項；'
+                  f'累計下載 {self.downloaded_bytes/1048576:,.0f} MiB', flush=True)
 
     def stat(self, n, key, value):
         self.book_stats.setdefault(n, {})[key] = value
@@ -242,25 +256,29 @@ def text_file(archive, rel, html, url, kind, **meta):
 
 def bible(archive, books, want_text, want_audio, chapter_limit):
     for n in books:
-        name = BOOKS[n-1]; base = folder(n)
-        url = f'{SITE}/recoveryversion/bible/{n:02d}.html'
-        print(f'[恢復本] {base}', flush=True)
-        html = archive.get(f'recovery-version/html/{base}.html', url, 'bible_html', book=n, book_name=name)
-        if not html:
-            continue
-        page = html.decode('utf-8', errors='replace')
-        prefix = re.search(r"bookMP4Prefix:\s*['\"]([^'\"]+)", page)
-        chapters = chapter_count(page)
-        archive.stat(n, 'chapters', chapters)
-        if want_text:
-            text_file(archive, f'recovery-version/text/{base}.txt', html, url, 'bible_text', book=n, book_name=name)
-        if want_audio:
-            if not chapters or not prefix:
-                archive.errors.append(dict(path=base, url=url, kind='bible_audio', error='Player metadata not found', at=now()))
+        mark = (archive.added, len(archive.errors))
+        try:
+            name = BOOKS[n-1]; base = folder(n)
+            url = f'{SITE}/recoveryversion/bible/{n:02d}.html'
+            print(f'[恢復本] {base}', flush=True)
+            html = archive.get(f'recovery-version/html/{base}.html', url, 'bible_html', book=n, book_name=name)
+            if not html:
                 continue
-            for c in range(1, min(chapters, chapter_limit or 10**6)+1):
-                archive.get(f'recovery-version/audio/{base}/{c:03d}.mp3', bible_audio_url(n, c, chapters, prefix.group(1)),
-                            'bible_audio', book=n, book_name=name, chapter=c)
+            page = html.decode('utf-8', errors='replace')
+            prefix = re.search(r"bookMP4Prefix:\s*['\"]([^'\"]+)", page)
+            chapters = chapter_count(page)
+            archive.stat(n, 'chapters', chapters)
+            if want_text:
+                text_file(archive, f'recovery-version/text/{base}.txt', html, url, 'bible_text', book=n, book_name=name)
+            if want_audio:
+                if not chapters or not prefix:
+                    archive.errors.append(dict(path=base, url=url, kind='bible_audio', error='Player metadata not found', at=now()))
+                    continue
+                for c in range(1, min(chapters, chapter_limit or 10**6)+1):
+                    archive.get(f'recovery-version/audio/{base}/{c:03d}.mp3', bible_audio_url(n, c, chapters, prefix.group(1)),
+                                'bible_audio', book=n, book_name=name, chapter=c)
+        finally:
+            archive.book_done(n, *mark)
 
 
 def chapter_count(page):
@@ -294,33 +312,37 @@ def message_links(html, n, url):
 
 def life_study(archive, books, want_text, want_audio, message_limit):
     for n in books:
-        name = BOOKS[n-1]; base = folder(n); url = f'{SITE}/life-study/{n}.html'
-        html = archive.get(f'life-study/index/{base}.html', url, 'life_study_index_html', book=n, book_name=name)
-        if not html:
-            continue
-        messages = message_links(html, n, url)
-        archive.stat(n, 'messages', len(messages))
-        note = f'（與 {folder(SHARED_LIFE_STUDY[n])} 為同一套信息）' if n in SHARED_LIFE_STUDY else ''
-        print(f'[生命讀經] {base}：{len(messages)} 篇{note}', flush=True)
-        for k in sorted(messages)[:message_limit or None]:
-            murl = messages[k]; stem = f'{base}/{k:03d}'
-            mhtml = archive.get(f'life-study/html/{stem}.html', murl, 'life_study_html', book=n, book_name=name, message=k)
-            if not mhtml:
+        mark = (archive.added, len(archive.errors))
+        try:
+            name = BOOKS[n-1]; base = folder(n); url = f'{SITE}/life-study/{n}.html'
+            html = archive.get(f'life-study/index/{base}.html', url, 'life_study_index_html', book=n, book_name=name)
+            if not html:
                 continue
-            if want_text:
-                text_file(archive, f'life-study/text/{stem}.txt', mhtml, murl, 'life_study_text', book=n,
-                          book_name=name, message=k, message_title=main_text(mhtml)[1])
-            if want_audio:
-                msoup = BeautifulSoup(mhtml, 'html.parser')
-                sources = [urllib.parse.urljoin(murl, tag.get('src')) for tag in msoup.select('audio source[src], audio[src]')]
-                sources = [s for s in dict.fromkeys(sources) if s.lower().endswith('.mp3')]
-                if not sources:
-                    archive.errors.append(dict(path=f'life-study/audio/{stem}', url=murl, kind='life_study_audio',
-                                               error='No MP3 on page', at=now()))
-                for i, source in enumerate(sources):
-                    suffix = '' if i == 0 else f'-{i+1}'
-                    archive.get(f'life-study/audio/{stem}{suffix}.mp3', source, 'life_study_audio', book=n,
-                                book_name=name, message=k, page_url=murl)
+            messages = message_links(html, n, url)
+            archive.stat(n, 'messages', len(messages))
+            note = f'（與 {folder(SHARED_LIFE_STUDY[n])} 為同一套信息）' if n in SHARED_LIFE_STUDY else ''
+            print(f'[生命讀經] {base}：{len(messages)} 篇{note}', flush=True)
+            for k in sorted(messages)[:message_limit or None]:
+                murl = messages[k]; stem = f'{base}/{k:03d}'
+                mhtml = archive.get(f'life-study/html/{stem}.html', murl, 'life_study_html', book=n, book_name=name, message=k)
+                if not mhtml:
+                    continue
+                if want_text:
+                    text_file(archive, f'life-study/text/{stem}.txt', mhtml, murl, 'life_study_text', book=n,
+                              book_name=name, message=k, message_title=main_text(mhtml)[1])
+                if want_audio:
+                    msoup = BeautifulSoup(mhtml, 'html.parser')
+                    sources = [urllib.parse.urljoin(murl, tag.get('src')) for tag in msoup.select('audio source[src], audio[src]')]
+                    sources = [s for s in dict.fromkeys(sources) if s.lower().endswith('.mp3')]
+                    if not sources:
+                        archive.errors.append(dict(path=f'life-study/audio/{stem}', url=murl, kind='life_study_audio',
+                                                   error='No MP3 on page', at=now()))
+                    for i, source in enumerate(sources):
+                        suffix = '' if i == 0 else f'-{i+1}'
+                        archive.get(f'life-study/audio/{stem}{suffix}.mp3', source, 'life_study_audio', book=n,
+                                    book_name=name, message=k, page_url=murl)
+        finally:
+            archive.book_done(n, *mark)
 
 
 def compact(books):
@@ -422,6 +444,7 @@ def main():
     parser.add_argument('--books', type=parse_books, default=parse_books('1-66'), help='卷號，例如 1-66 或 8,57')
     parser.add_argument('--no-text', action='store_true', help='不產生純文字（原始網頁仍會保存）')
     parser.add_argument('--no-audio', action='store_true', help='不下載 MP3')
+    parser.add_argument('--quiet', action='store_true', help='不逐檔顯示，只顯示每卷摘要與錯誤（適合 Colab）')
     parser.add_argument('--limit-per-book', type=int, default=0, help='試跑：每卷最多幾章／幾篇')
     parser.add_argument('--interval', type=float, default=1.0, help='請求間隔秒數（最低 0.5）')
     parser.add_argument('--retries', type=int, default=2)
@@ -441,6 +464,7 @@ def main():
         parser.error(f'--ca-bundle 無法讀取：{error}')
     print(f'HTTPS 憑證來源：{trust}', flush=True)
     archive = Archive(args.output, args.interval, args.retries, args.timeout, args.max_file_mb*1048576, context)
+    archive.verbose = not args.quiet
     try:
         if 'bible' in collections:
             bible(archive, args.books, not args.no_text, not args.no_audio, args.limit_per_book)
