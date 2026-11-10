@@ -31,6 +31,22 @@ class ScoringTests(unittest.TestCase):
         self.assertAlmostEqual(bad['cer'], 2/12, places=3); self.assertEqual(good['cer'], 0)
         self.assertEqual(sum(b and not a for a, b in zip(ok_bad, ok_good)), 2)
 
+    def test_error_breakdown_and_long_deletions(self):
+        reference = '甲'*30 + '乙丙丁'
+        metrics, _ = ev.score(reference, '乙戊丁X', [])
+        self.assertEqual((metrics['substitutions'], metrics['deletions'], metrics['insertions']), (1, 30, 1))
+        self.assertEqual((metrics['long_deletion_runs'], metrics['long_deletion_chars']), (1, 30))
+
+    def test_live_chunks_cut_in_pauses_and_split_long_speech(self):
+        r = ev.RATE
+        regions = [dict(start=0, end=4*r), dict(start=5*r, end=9*r), dict(start=10*r, end=14*r),
+                   dict(start=16*r, end=50*r)]
+        chunks = ev.vad_chunks(regions, 60*r, 10*r)
+        self.assertEqual(chunks[0], (0, 9*r))            # two pauses-separated phrases fit in 10 s
+        self.assertTrue(all(end - start <= 10*r for start, end in chunks))
+        self.assertEqual(chunks[-1][1], 50*r)
+        self.assertEqual(ev.fixed_chunks(25*r, 10*r), [(0, 10*r), (10*r, 20*r), (20*r, 25*r)])
+
     def test_live_corrections_are_applied_per_segment(self):
         out = ev.corrections(['我們讀以服所書', '耶蘇愛我'])
         self.assertEqual(out['phonetic'], ['我們讀以弗所書', '耶穌愛我'])

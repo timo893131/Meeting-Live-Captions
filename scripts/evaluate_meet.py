@@ -10,6 +10,10 @@ For every recognizer output three variants are scored, the same way the website 
   glossary  + exact glossary replacements (glossary.js)
   phonetic  + same-sound church-term correction (public/phonetic.js)
 
+Recognizer conditions (--conditions): full = whole file in one pass; fixed<N>/vad<N> = live-caption simulation
+where audio is cut every N seconds (fixed) or at pauses with N seconds max (vad) and each chunk is recognized
+without earlier context, as a Workers AI request per chunk would be; caption delay = chunk length + processing.
+
 Metrics: CER on normalized text (NFC, Simplified→Traditional for the hypothesis, punctuation/space removed),
 church-term accuracy on reference term occurrences, and chars fixed/broken by each correction step.
 This is a SEALED test: do not tune terms, prompts or rules from its errors; print aggregates only.
@@ -28,6 +32,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NEUTRAL_PROMPT = '以下是繁體中文的逐字稿。'
+LONG_DELETION = 20
 KEEP = re.compile(r'[㐀-䶿一-鿿豈-﫿A-Za-z0-9]')
 
 
@@ -89,7 +94,16 @@ def score(reference, hypothesis, spans):
                 ok[k] = True
     distance = Levenshtein.distance(reference, hypothesis)
     correct = sum(all(ok[s:e]) for s, e, _ in spans)
+    kinds = {'replace': 0, 'delete': 0, 'insert': 0}
+    for op in Levenshtein.editops(reference, hypothesis):
+        kinds[op.tag] += 1
+    # Long runs of reference text with no recognized counterpart usually mean the speaker did not say that
+    # part (or music/noise), not individual recognition errors.
+    long_runs = [i2 - i1 for tag, i1, i2, _j1, _j2 in Levenshtein.opcodes(reference, hypothesis)
+                 if tag == 'delete' and i2 - i1 >= LONG_DELETION]
     return dict(cer=round(distance/len(reference), 4) if reference else None, edit_distance=distance,
+                substitutions=kinds['replace'], deletions=kinds['delete'], insertions=kinds['insert'],
+                long_deletion_runs=len(long_runs), long_deletion_chars=sum(long_runs),
                 reference_chars=len(reference), hypothesis_chars=len(hypothesis),
                 term_occurrences=len(spans), terms_correct=correct,
                 term_accuracy=round(correct/len(spans), 4) if spans else None), ok
@@ -141,6 +155,63 @@ def decode_audio(path):
     return np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
 
 
+RATE = 16000
+
+
+def vad_chunks(regions, total, max_samples):
+    """Group speech regions [{start,end}] into chunks of at most max_samples, cutting only in pauses;
+    a single longer region is split at fixed points. Returns [(start, end)] in samples."""
+    chunks = []; current = None
+    for region in regions:
+        start, end = region['start'], min(region['end'], total)
+        while end - start > max_samples:  # one long stretch of speech: forced cut
+            if current:
+                chunks.append(current); current = None
+            chunks.append((start, start + max_samples)); start += max_samples
+        if current and end - current[0] <= max_samples:
+            current = (current[0], end)
+        else:
+            if current:
+                chunks.append(current)
+            current = (start, end)
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def fixed_chunks(total, max_samples):
+    return [(start, min(start + max_samples, total)) for start in range(0, total, max_samples)]
+
+
+def transcribe_chunked(model, audio, mode, seconds):
+    """Live-caption simulation: each chunk is recognized on its own (no earlier context), one caption per
+    chunk. Delay = chunk length + processing time on THIS hardware (Workers AI timing differs)."""
+    from faster_whisper.vad import VadOptions, get_speech_timestamps
+    samples = decode_audio(audio); limit = int(seconds*RATE)
+    if mode == 'vad':
+        regions = get_speech_timestamps(samples, VadOptions(min_silence_duration_ms=300, speech_pad_ms=100))
+        spans = vad_chunks(regions, len(samples), limit)
+    else:
+        spans = fixed_chunks(len(samples), limit)
+    texts, processing = [], []
+    for start, end in spans:
+        began = time.monotonic()
+        segments, _ = model.transcribe(samples[start:end], language='zh', task='transcribe', beam_size=5,
+                                       temperature=0, vad_filter=False, condition_on_previous_text=False,
+                                       without_timestamps=True)
+        texts.append(''.join(s.text for s in segments).strip())
+        processing.append(time.monotonic() - began)
+    lengths = sorted((end - start)/RATE for start, end in spans)
+    delays = sorted((end - start)/RATE + p for (start, end), p in zip(spans, processing))
+    pick = lambda values, q: round(values[min(len(values) - 1, int(q*len(values)))], 2) if values else None
+    duration = len(samples)/RATE
+    return texts, dict(duration_seconds=round(duration, 1), elapsed_seconds=round(sum(processing), 1),
+                       rtf=round(sum(processing)/duration, 3) if duration else None, chunks=len(spans),
+                       chunk_seconds_median=pick(lengths, 0.5), chunk_seconds_max=pick(lengths, 1.0),
+                       processing_seconds_p95=pick(sorted(processing), 0.95),
+                       caption_delay_seconds_median=pick(delays, 0.5), caption_delay_seconds_p95=pick(delays, 0.95))
+
+
 def transcribe(model, audio, prompt):
     samples = decode_audio(audio)
     started = time.monotonic()
@@ -160,6 +231,8 @@ def main():
     parser.add_argument('--model-label', default='whisper-large-v3-turbo')
     parser.add_argument('--device', default='auto', choices=['auto', 'cuda', 'cpu'])
     parser.add_argument('--only', help='Comma-separated pair ids (e.g. 01) to evaluate')
+    parser.add_argument('--conditions', default='full,fixed15,vad15',
+                        help='full (whole file), full_prompt (+Traditional prompt), fixed<N> / vad<N> (N-second live chunks)')
     args = parser.parse_args()
     from opencc import OpenCC
     converter = OpenCC('s2tw')
@@ -199,13 +272,24 @@ def main():
                      reference_chars=len(references['full']), term_occurrences=len(spans['full']), conditions=[])
         print(f'[{pair}] 參考文字 {entry["reference_chars"]} 字、教會專名 {entry["term_occurrences"]} 處', flush=True)
         if model:
-            for name, prompt in [('whisper_no_prompt', None), ('whisper_traditional_prompt', NEUTRAL_PROMPT)]:
-                texts, timing = transcribe(model, meet/f'{pair}.mp3', prompt)
+            for condition in [c.strip() for c in args.conditions.split(',') if c.strip()]:
+                chunked = re.fullmatch(r'(fixed|vad)(\d+)', condition)
+                if condition in ('full', 'full_prompt'):
+                    prompt = NEUTRAL_PROMPT if condition == 'full_prompt' else None
+                    name = 'whisper_traditional_prompt' if prompt else 'whisper_no_prompt'
+                    texts, timing = transcribe(model, meet/f'{pair}.mp3', prompt)
+                elif chunked:
+                    mode, seconds = chunked.group(1), int(chunked.group(2))
+                    name, prompt = f'whisper_live_{mode}_{seconds}s', None
+                    texts, timing = transcribe_chunked(model, meet/f'{pair}.mp3', mode, seconds)
+                else:
+                    raise SystemExit(f'Unknown condition: {condition}')
                 result, out = score_variants(name, texts, references, spans, converter)
                 result.update(timing, prompt=prompt)
                 entry['conditions'].append(result)
                 (output/f'{pair}.{name}.json').write_text(json.dumps(dict(raw=texts, **out), ensure_ascii=False, indent=1), encoding='utf-8')
-                print(f'  {name}: 完成（RTF {timing["rtf"]}）', flush=True)
+                delay = f'，字幕延遲中位數 {timing["caption_delay_seconds_median"]} 秒、P95 {timing["caption_delay_seconds_p95"]} 秒' if 'chunks' in timing else ''
+                print(f'  {name}: 完成（RTF {timing["rtf"]}{delay}）', flush=True)
         chrome = meet/f'{pair}.chrome.txt'
         if chrome.exists():
             texts = chrome_segments(chrome)
@@ -224,6 +308,15 @@ def main():
                     acc = f"{m['terms_correct']}/{m['term_occurrences']}" if m['term_occurrences'] else '—'
                     rows.append(f"| {entry['id']} | {cond['condition']} | {key.split('/')[1]} | {m['cer']:.2%} | {acc} | "
                                 f"{m.get('chars_fixed_vs_previous', '—')} | {m.get('chars_broken_vs_previous', '—')} |")
+    rows += ['', '錯誤分類（原始辨識，對照完整參考文字）', '',
+             '| 測試 | 條件 | 替換 | 漏字 | 多字 | 長段漏字（≥20字） | 字幕延遲 中位數／P95 |', '| --- | --- | --- | --- | --- | --- | --- |']
+    for entry in report['pairs']:
+        for cond in entry['conditions']:
+            m = cond['variants']['full/raw']
+            delay = (f"{cond['caption_delay_seconds_median']}／{cond['caption_delay_seconds_p95']} 秒"
+                     if 'caption_delay_seconds_median' in cond else '—')
+            rows.append(f"| {entry['id']} | {cond['condition']} | {m['substitutions']} | {m['deletions']} | {m['insertions']} | "
+                        f"{m['long_deletion_runs']} 段／{m['long_deletion_chars']} 字 | {delay} |")
     summary = '\n'.join(rows)
     (output/'summary.md').write_text(summary+'\n', encoding='utf-8')
     print('\n'+summary)
