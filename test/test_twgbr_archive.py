@@ -11,7 +11,8 @@ sys.path.insert(0, str(ROOT/'scripts'))
 import download_twgbr_archive as arch
 
 BIBLE = ("<script>var bible = { numChapters: '2', bookMP4Prefix: 'Ruth' };</script><div id='verses'>"
-         "<div id='chapternav'>NAV</div>回首頁<h3>路得記 第 1 章</h3><p>1</p><p>SYNTHETIC VERSE</p></div>")
+         "<div id='chapternav'>NAV</div>回首頁<h3 id='C1Ruth'>路得記 第 1 章</h3><p>1</p><p>SYNTHETIC VERSE</p>"
+         "<h3 id='C2Ruth'>路得記 第 2 章</h3></div>")
 INDEX = ("<title>撒母耳記 - 舊約生命讀經</title><div id='verses'><h3>第一篇　SYNTHETIC</h3>"
          "<audio><source src='mp3/ot/1Sa-001.mp3'></audio><p>BODY</p></div>"
          "<a href='{n}_2.html'>2</a><a href='https://example.org/x.html'>out</a>")
@@ -34,6 +35,21 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(title, '路得記 第 1 章')
         self.assertIn('1 SYNTHETIC VERSE', text)
         self.assertNotIn('回首頁', text); self.assertNotIn('NAV', text)
+
+    def test_chapters_counted_from_headings_not_wrong_player_setting(self):
+        page = BIBLE.replace("numChapters: '2'", 'numChapters: 5').encode()  # 播放器寫 5，經文只有 2 章
+        pages = {'https://line.twgbr.org/recoveryversion/bible/66.html': page,
+                 'https://plan.bible365.today/plan/mp3/bible/66/01-Ruth.mp3': b'ID3', 'https://plan.bible365.today/plan/mp3/bible/66/02-Ruth.mp3': b'ID3'}
+        with tempfile.TemporaryDirectory() as folder:
+            archive = FakeArchive(folder, pages); arch.bible(archive, [66], False, True, 0)
+            self.assertEqual(archive.errors, []); self.assertEqual(archive.book_stats[66]['chapters'], 2)
+
+    def test_bible_audio_url_rules_verified_on_site(self):
+        base = 'https://plan.bible365.today/plan/mp3/bible'
+        self.assertEqual(arch.bible_audio_url(1, 1, 50, 'Genesis'), base+'/01/01-Genesis.mp3')
+        self.assertEqual(arch.bible_audio_url(9, 1, 31, '1 Samuel'), base+'/09/01-1%20Samuel.mp3')
+        self.assertEqual(arch.bible_audio_url(19, 1, 150, 'Psalms'), base+'/19/001-Psalms.mp3')
+        self.assertEqual(arch.bible_audio_url(19, 150, 150, 'Psalms'), base+'/19/150-Psalms.mp3')
 
     def test_scope_rejects_other_hosts(self):
         archive = arch.Archive(tempfile.mkdtemp(), 0.5, 0, 5, 1000)
@@ -59,23 +75,37 @@ class ArchiveTests(unittest.TestCase):
             again = FakeArchive(folder, pages); arch.bible(again, [8], True, True, 0)
             self.assertEqual(again.calls, [])  # finished files are skipped
 
-    def test_life_study_shared_books_saved_once_and_external_links_ignored(self):
+    def test_every_book_kept_shared_audio_copied_and_external_links_ignored(self):
         mp3 = b'ID3' + b'\0'*32; pages = {}
         for n in (9, 10):
-            pages[f'https://line.twgbr.org/life-study/{n}.html'] = INDEX.format(n=9).encode()
-        pages['https://line.twgbr.org/life-study/9_2.html'] = INDEX.format(n=9).encode()
+            pages[f'https://line.twgbr.org/life-study/{n}.html'] = INDEX.format(n=n).encode()
+            pages[f'https://line.twgbr.org/life-study/{n}_2.html'] = INDEX.format(n=n).encode()
         pages['https://line.twgbr.org/life-study/mp3/ot/1Sa-001.mp3'] = mp3
         with tempfile.TemporaryDirectory() as folder:
             archive = FakeArchive(folder, pages); arch.life_study(archive, [9, 10], True, True, 0)
+            self.assertEqual(archive.errors, [])
             self.assertFalse(any('example.org' in url for url in archive.calls))
-            self.assertTrue((Path(folder)/'life-study/text/09-撒母耳記/002.txt').exists())
-            self.assertFalse((Path(folder)/'life-study/html/10-撒母耳記').exists())
+            self.assertEqual(archive.calls.count('https://line.twgbr.org/life-study/mp3/ot/1Sa-001.mp3'), 1)
+            for name in ('09-撒母耳記上', '10-撒母耳記下'):
+                self.assertTrue((Path(folder)/f'life-study/text/{name}/002.txt').exists())
+                self.assertTrue((Path(folder)/f'life-study/audio/{name}/001.mp3').exists())
             arch.write_readme(archive, argparse.Namespace(collections='life-study', books=[9, 10], no_text=False,
                                                           no_audio=False, limit_per_book=0))
             readme = (Path(folder)/'README.md').read_text(encoding='utf-8')
-            self.assertIn('資料夾結構', readme); self.assertIn('不公開', readme)
+            self.assertIn('逐卷清單', readme); self.assertIn('| 10-撒母耳記下 | — | 0／? | 2／2 |', readme)
             rows = [json.loads(l) for l in (Path(folder)/'manifest.jsonl').read_text(encoding='utf-8').splitlines()]
             self.assertTrue(all(len(r['sha256']) == 64 for r in rows))
+
+    def test_zip_marks_chinese_names_as_utf8(self):
+        import zipfile
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)/'arch'; (root/'life-study/text/01-創世記').mkdir(parents=True)
+            (root/'life-study/text/01-創世記/001.txt').write_text('SYNTHETIC', encoding='utf-8')
+            target = arch.make_zip(root, Path(folder)/'out.zip')
+            with zipfile.ZipFile(target) as bundle:
+                info = bundle.infolist()[0]
+                self.assertEqual(info.filename, 'arch/life-study/text/01-創世記/001.txt')
+                self.assertTrue(info.flag_bits & 0x800)
 
     def test_non_mp3_response_is_an_error_not_a_file(self):
         pages = {'https://line.twgbr.org/recoveryversion/bible/08.html': BIBLE.encode(),

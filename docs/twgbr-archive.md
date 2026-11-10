@@ -11,7 +11,9 @@
 | 生命讀經 | https://line.twgbr.org/life-study/1–66.html 及其連到的每篇 `<n>_<k>.html` |
 | 生命讀經音訊 | 每篇頁面 `<audio>` 的 MP3（line.twgbr.org/life-study/mp3/…） |
 
-撒母耳記、列王紀、歷代志上下卷網址不同但內容與音訊相同，只存一次（存在上卷資料夾）。
+66 卷每卷都有自己的資料夾，一律使用標準書名（01-創世記 … 66-啟示錄）。撒母耳記、列王紀、歷代志的上下卷在網站上是同一套生命讀經，兩卷都會保存；相同的 MP3 只下載一次，另一卷用本機複製。
+
+經文音訊網址規則已對照網站實測：章號用兩位數（`01-Genesis.mp3`），詩篇 150 章用三位數（`001-Psalms.mp3`）；書名中的空白要編碼（`01-1%20Samuel.mp3`）；章數以經文中的章標題計算（約翰參書頁面播放器寫 5 章，實際 1 章）。
 
 ## 使用
 
@@ -25,13 +27,13 @@ pip install beautifulsoup4
 python scripts/download_twgbr_archive.py --output twgbr-archive
 ```
 
-常用選項：`--no-audio`（只抓文字＋原始網頁）、`--collections bible` 或 `life-study`、`--books 1-5,40`、`--limit-per-book 2`（試跑）、`--interval 1`（每次請求間隔秒數，最低 0.5）。中斷後用同一個 `--output` 再跑一次即可續抓；已完成且大小相符的檔案不再下載。
+常用選項：`--zip twgbr.zip`（完成後打包；中文檔名有 UTF-8 標記，Windows 解壓不會變亂碼）、`--no-audio`（只抓文字＋原始網頁）、`--collections bible` 或 `life-study`、`--books 1-5,40`、`--limit-per-book 2`（試跑）、`--interval 1`（每次請求間隔秒數，最低 0.5）。中斷後用同一個 `--output` 再跑一次即可續抓；已完成且大小相符的檔案不再下載。
 
-預估：全部音訊約 27GB（經文 1,189 章，每章約 4–8MB；生命讀經約 2,000 篇，每篇約 2–10MB），以每秒 1 個請求計算，全部約需數小時，視網速而定。
+預估：全部音訊約 27GB（經文 1,189 章，每章約 4–8MB；生命讀經 1,984 個不重複音訊，每篇約 2–10MB），以每秒 1 個請求計算，全部約需數小時，視網速而定。
 
 ## 輸出
 
-每次執行結束會在輸出資料夾重寫 README.md，內容包括抓取範圍、資料夾結構、各類檔案數量與大小、失敗數。另外有：
+每次執行結束會在輸出資料夾重寫 README.md，內容包括抓取範圍、資料夾結構、各類總數、66 卷逐卷清單（已存數／網站應有數）與失敗數。另外有：
 
 - manifest.jsonl：每個完成檔案的 path、url、kind、bytes、sha256、fetched_at，以及卷、章或篇。
 - errors.jsonl：本次失敗項目，重新執行時會自動補抓。
@@ -46,4 +48,4 @@ python scripts/download_twgbr_archive.py --output twgbr-archive
 python -m unittest test.test_twgbr_archive
 ```
 
-測試用的是合成網頁，沒有連網，涵蓋：只允許兩個主機、經文格式整理、續抓不重下、上下卷去重、非 MP3 回應記為錯誤、README 與 manifest 的產生。
+測試用的是合成網頁，沒有連網，涵蓋：只允許兩個主機、經文格式整理、續抓不重下、上下卷都保存且共用音訊只下載一次、經文音訊網址規則、沒有引號的章數、zip 的 UTF-8 檔名、非 MP3 回應記為錯誤、README 與 manifest 的產生。

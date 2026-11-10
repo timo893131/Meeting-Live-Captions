@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
-"""Private offline archive of TWGBR Recovery Version Bible and Life-Study (text + audio).
+"""TWGBR 恢復本聖經＋生命讀經 私人離線下載程式（文字＋音訊）。
 
-Scope (fixed): https://line.twgbr.org/recoveryversion/bible/01-66.html, the Life-Study book
-pages https://line.twgbr.org/life-study/1-66.html and every message page they link to, the
-Life-Study MP3 linked on each message page, and the per-chapter Bible MP3s that the Recovery
-Version page player loads from plan.bible365.today. Nothing else is followed.
+範圍（固定，不追蹤其他連結）：
+  * 恢復本經文：https://line.twgbr.org/recoveryversion/bible/01–66.html（每卷一頁含全部章）
+  * 恢復本音訊：上述頁面播放器載入的 https://plan.bible365.today/plan/mp3/bible/<卷>/<章>-<書名>.mp3
+  * 生命讀經：https://line.twgbr.org/life-study/1–66.html 及其連到的每篇 <n>_<k>.html
+  * 生命讀經音訊：每篇頁面 <audio> 的 MP3
 
-Personal, non-public use only: content is CopyrightⒸ 臺灣福音書房; not for redistribution or
-model training without permission. Polite by default (1 request/second, one connection),
-resumable (finished files are recorded in manifest.jsonl with SHA-256 and skipped next run).
+66 卷每卷各有自己的資料夾，資料夾一律使用標準書名（01-創世記 … 66-啟示錄）。撒母耳記、列王紀、
+歷代志的上下卷在網站上內容相同，兩卷都會保存；相同的 MP3 只下載一次，第二卷用本機複製。
 
-Requires Python 3.10+ and beautifulsoup4 (pip install beautifulsoup4).
+只供個人離線研讀、不公開：內容 CopyrightⒸ 臺灣福音書房，不轉散布，未經授權不用於模型訓練。
+預設每秒最多 1 個請求、單一連線；可中斷續抓（完成的檔案記在 manifest.jsonl，含 SHA-256）。
+
+需求：Python 3.10+、beautifulsoup4（pip install beautifulsoup4）。
+
+範例：
+  python download_twgbr_archive.py --output twgbr-archive              # 全部（約 27GB）
+  python download_twgbr_archive.py --output twgbr-archive --no-audio   # 只抓文字與原始網頁
+  python download_twgbr_archive.py --output twgbr-archive --books 1-5,40 --zip twgbr.zip
 """
 import argparse
 import hashlib
 import json
 import re
+import shutil
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,7 +39,7 @@ from bs4 import BeautifulSoup
 SITE = 'https://line.twgbr.org'
 BIBLE_AUDIO = 'https://plan.bible365.today/plan/mp3/bible'
 HOSTS = {'line.twgbr.org', 'plan.bible365.today'}
-UA = 'MeetingLiveCaptions-PrivateArchive/1.0 (personal offline study; 1 req/s)'
+UA = 'MeetingLiveCaptions-PrivateArchive/1.1 (personal offline study; 1 req/s)'
 BOOKS = ['創世記', '出埃及記', '利未記', '民數記', '申命記', '約書亞記', '士師記', '路得記', '撒母耳記上',
          '撒母耳記下', '列王紀上', '列王紀下', '歷代志上', '歷代志下', '以斯拉記', '尼希米記', '以斯帖記',
          '約伯記', '詩篇', '箴言', '傳道書', '雅歌', '以賽亞書', '耶利米書', '耶利米哀歌', '以西結書',
@@ -38,8 +48,7 @@ BOOKS = ['創世記', '出埃及記', '利未記', '民數記', '申命記', '�
          '使徒行傳', '羅馬書', '哥林多前書', '哥林多後書', '加拉太書', '以弗所書', '腓立比書', '歌羅西書',
          '帖撒羅尼迦前書', '帖撒羅尼迦後書', '提摩太前書', '提摩太後書', '提多書', '腓利門書', '希伯來書',
          '雅各書', '彼得前書', '彼得後書', '約翰壹書', '約翰貳書', '約翰參書', '猶大書', '啟示錄']
-
-
+SHARED_LIFE_STUDY = {10: 9, 12: 11, 14: 13}  # 下卷 → 上卷（網站上同一套生命讀經）
 NAV = {'简', '繁', '回目錄', '回首頁', '上一篇', '下一篇', '上一卷', '下一卷'}
 
 
@@ -51,12 +60,12 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def safe(name):
-    return re.sub(r'[\\/:*?"<>|\s]+', '_', name).strip('_')[:60]
+def folder(n):
+    return f'{n:02d}-{BOOKS[n-1]}'
 
 
 class Archive:
-    def __init__(self, root, interval, retries, timeout, max_bytes):
+    def __init__(self, root, interval=1.0, retries=2, timeout=60, max_bytes=80*1048576):
         self.root = Path(root); self.root.mkdir(parents=True, exist_ok=True)
         self.interval, self.retries, self.timeout, self.max_bytes = interval, retries, timeout, max_bytes
         self.manifest_path = self.root/'manifest.jsonl'
@@ -66,7 +75,9 @@ class Archive:
                 if line.strip():
                     row = json.loads(line); self.done[row['path']] = row
         self.errors = []; self.last = 0.0; self.requests = 0; self.downloaded_bytes = 0
+        self.book_stats = {}
 
+    # ---- network -------------------------------------------------------------------------
     def fetch(self, url):
         parts = urllib.parse.urlsplit(url)
         if parts.scheme != 'https' or parts.hostname not in HOSTS:
@@ -103,38 +114,62 @@ class Archive:
                     time.sleep(5*(attempt+1)); continue
                 raise
 
-    def save(self, rel, url, data, kind, **meta):
-        path = self.root/rel; path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_name(path.name+'.part'); temporary.write_bytes(data); temporary.replace(path)
-        row = dict(path=rel, url=url, kind=kind, bytes=len(data), sha256=sha256(data), fetched_at=now(), **meta)
+    # ---- local files ---------------------------------------------------------------------
+    def record(self, rel, url, data_len, digest, kind, **meta):
+        row = dict(path=rel, url=url, kind=kind, bytes=data_len, sha256=digest, fetched_at=now(), **meta)
         with self.manifest_path.open('a', encoding='utf-8') as stream:
             stream.write(json.dumps(row, ensure_ascii=False)+'\n')
         self.done[rel] = row
         return row
 
+    def save(self, rel, url, data, kind, **meta):
+        path = self.root/rel; path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(path.name+'.part'); temporary.write_bytes(data); temporary.replace(path)
+        return self.record(rel, url, len(data), sha256(data), kind, **meta)
+
     def have(self, rel):
         row = self.done.get(rel); path = self.root/rel
         return bool(row and path.exists() and path.stat().st_size == row['bytes'])
 
+    def local_copy(self, url, kind):
+        """A finished file already downloaded from the same URL (shared Samuel/Kings/Chronicles audio)."""
+        for row in self.done.values():
+            if row['url'] == url and row['kind'] == kind and self.have(row['path']):
+                return row
+        return None
+
     def get(self, rel, url, kind, **meta):
-        """Return bytes for rel, downloading only if it is not already complete."""
+        """Return bytes for html kinds (from disk if complete); download only what is missing."""
         if self.have(rel):
-            return (self.root/rel).read_bytes() if kind.endswith('html') else None
+            return (self.root/rel).read_bytes() if kind.endswith('html') else True
+        if kind.endswith('audio'):
+            source = self.local_copy(url, kind)
+            if source:
+                path = self.root/rel; path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(self.root/source['path'], path)
+                self.record(rel, url, source['bytes'], source['sha256'], kind, copied_from=source['path'], **meta)
+                print(f'  = {rel}（與 {source["path"]} 相同，本機複製）', flush=True)
+                return True
         try:
             data = self.fetch(url)
         except Exception as error:
             self.errors.append(dict(path=rel, url=url, kind=kind, error=f'{type(error).__name__}: {error}'[:300], at=now()))
             print(f'  ! {rel}: {self.errors[-1]["error"]}', flush=True)
             return None
-        if kind.endswith('audio') and not data[:3] == b'ID3' and data[:1] != b'\xff':
+        if kind.endswith('audio') and data[:3] != b'ID3' and data[:1] != b'\xff':
             self.errors.append(dict(path=rel, url=url, kind=kind, error='Response is not MP3 audio', at=now()))
+            print(f'  ! {rel}: 不是 MP3 音訊', flush=True)
             return None
         self.save(rel, url, data, kind, **meta)
         print(f'  + {rel} ({len(data):,} bytes)', flush=True)
-        return data
+        return data if kind.endswith('html') else True
+
+    def stat(self, n, key, value):
+        self.book_stats.setdefault(n, {})[key] = value
 
 
 def main_text(html):
+    """#verses 主內容 → 純文字：去掉導覽列，經節號碼與經文合成一行。回傳 (文字, 第一個 h3 標題)。"""
     soup = BeautifulSoup(html, 'html.parser')
     body = soup.select_one('#verses')
     if body is None:
@@ -145,7 +180,6 @@ def main_text(html):
     lines = [line for line in body.get_text('\n', strip=True).splitlines() if line not in NAV]
     merged = []
     for line in lines:
-        # 經節號碼與經文合成一行：「1 當士師秉政的時候…」
         if merged and merged[-1].isdigit():
             merged[-1] = f'{merged[-1]} {line}'
         else:
@@ -154,130 +188,97 @@ def main_text(html):
 
 
 def text_file(archive, rel, html, url, kind, **meta):
-    if html is None or archive.have(rel):
-        return
+    if archive.have(rel):
+        return True
     text, _ = main_text(html)
     if not text:
-        archive.errors.append(dict(path=rel, url=url, kind=kind, error='No #verses main text', at=now())); return
+        archive.errors.append(dict(path=rel, url=url, kind=kind, error='No #verses main text', at=now()))
+        return False
     archive.save(rel, url, (text+'\n').encode('utf-8'), kind, derived_from='html', **meta)
+    return True
 
 
 def bible(archive, books, want_text, want_audio, chapter_limit):
     for n in books:
-        name = BOOKS[n-1]; folder = f'{n:02d}-{name}'
+        name = BOOKS[n-1]; base = folder(n)
         url = f'{SITE}/recoveryversion/bible/{n:02d}.html'
-        print(f'[恢復本] {folder}', flush=True)
-        html = archive.get(f'recovery-version/html/{folder}.html', url, 'bible_html', book=n, book_name=name)
-        if html is None:
-            html_path = archive.root/f'recovery-version/html/{folder}.html'
-            html = html_path.read_bytes() if html_path.exists() else None
-        if html is None:
+        print(f'[恢復本] {base}', flush=True)
+        html = archive.get(f'recovery-version/html/{base}.html', url, 'bible_html', book=n, book_name=name)
+        if not html:
             continue
+        page = html.decode('utf-8', errors='replace')
+        prefix = re.search(r"bookMP4Prefix:\s*['\"]([^'\"]+)", page)
+        chapters = chapter_count(page)
+        archive.stat(n, 'chapters', chapters)
         if want_text:
-            text_file(archive, f'recovery-version/text/{folder}.txt', html, url, 'bible_text', book=n, book_name=name)
+            text_file(archive, f'recovery-version/text/{base}.txt', html, url, 'bible_text', book=n, book_name=name)
         if want_audio:
-            page = html.decode('utf-8', errors='replace')
-            chapters = re.search(r"numChapters:\s*'(\d+)'", page); prefix = re.search(r"bookMP4Prefix:\s*'([^']+)'", page)
             if not chapters or not prefix:
-                archive.errors.append(dict(path=folder, url=url, kind='bible_audio', error='Player metadata not found', at=now())); continue
-            for c in range(1, min(int(chapters.group(1)), chapter_limit or 10**6)+1):
-                audio_url = f'{BIBLE_AUDIO}/{n:02d}/{c:02d}-{prefix.group(1)}.mp3'
-                archive.get(f'recovery-version/audio/{folder}/{c:03d}.mp3', audio_url, 'bible_audio',
-                            book=n, book_name=name, chapter=c)
+                archive.errors.append(dict(path=base, url=url, kind='bible_audio', error='Player metadata not found', at=now()))
+                continue
+            for c in range(1, min(chapters, chapter_limit or 10**6)+1):
+                archive.get(f'recovery-version/audio/{base}/{c:03d}.mp3', bible_audio_url(n, c, chapters, prefix.group(1)),
+                            'bible_audio', book=n, book_name=name, chapter=c)
+
+
+def chapter_count(page):
+    """以經文中的章標題（<h3 id="C…">）計算章數；播放器設定有誤（約翰參書寫 5 章，實際 1 章），只作備用。"""
+    headings = BeautifulSoup(page, 'html.parser').select('#verses h3[id^="C"]')
+    if headings:
+        return len(headings)
+    found = re.search(r"numChapters:\s*['\"]?(\d+)", page)  # 有些卷沒有引號（如啟示錄）
+    return int(found.group(1)) if found else None
+
+
+def bible_audio_url(book, chapter, chapters, prefix):
+    """章號兩位數（01-Genesis）；超過 99 章的詩篇用三位數（001-Psalms）。書名空白編碼（1%20Samuel）。"""
+    width = 3 if chapters >= 100 else 2
+    return f'{BIBLE_AUDIO}/{book:02d}/{chapter:0{width}d}-{urllib.parse.quote(prefix)}.mp3'
+
+
+def message_links(html, n, url):
+    soup = BeautifulSoup(html, 'html.parser')
+    pattern = re.compile(rf'/life-study/{n}(?:_(\d+))?\.html$')
+    messages = {}
+    for link in soup.find_all('a', href=True):
+        target = urllib.parse.urljoin(url, link['href']).split('#')[0]
+        parts = urllib.parse.urlsplit(target); match = pattern.search(parts.path)
+        # 網站上偶有 <n>_0.html 的壞連結（404），不是實際篇章。
+        if match and parts.hostname == 'line.twgbr.org' and match.group(1) != '0':
+            messages[int(match.group(1) or 1)] = target
+    messages.setdefault(1, url)
+    return messages
 
 
 def life_study(archive, books, want_text, want_audio, message_limit):
-    seen = set()
     for n in books:
-        url = f'{SITE}/life-study/{n}.html'
-        cached = archive.root/f'life-study/index/{n:02d}.html'
-        html = archive.get(f'life-study/index/{n:02d}.html', url, 'life_study_index_html', book=n)
-        html = html or (cached.read_bytes() if cached.exists() else None)
-        if html is None:
+        name = BOOKS[n-1]; base = folder(n); url = f'{SITE}/life-study/{n}.html'
+        html = archive.get(f'life-study/index/{base}.html', url, 'life_study_index_html', book=n, book_name=name)
+        if not html:
             continue
-        soup = BeautifulSoup(html, 'html.parser')
-        title = (soup.title.get_text(strip=True) if soup.title else '').split(' - ')[0] or BOOKS[n-1]
-        pattern = re.compile(rf'/life-study/{n}(?:_(\d+))?\.html$')
-        messages = {}
-        for link in soup.find_all('a', href=True):
-            target = urllib.parse.urljoin(url, link['href']).split('#')[0]
-            match = pattern.search(urllib.parse.urlsplit(target).path)
-            # 網站上偶有 <n>_0.html 的壞連結（404），不是實際篇章。
-            if match and urllib.parse.urlsplit(target).hostname == 'line.twgbr.org' and match.group(1) != '0':
-                messages[int(match.group(1) or 1)] = target
-        messages.setdefault(1, url)
-        # 撒母耳記、列王紀、歷代志上下卷網址不同但內容相同；以入口頁主內容判斷，只存一次。
-        key = sha256((main_text(html)[0] or url).encode('utf-8'))
-        if key in seen:
-            print(f'[生命讀經] {n:02d} 與前一卷內容相同，略過', flush=True); continue
-        seen.add(key)
-        folder = f'{n:02d}-{safe(title)}'
-        print(f'[生命讀經] {folder}：{len(messages)} 篇', flush=True)
+        messages = message_links(html, n, url)
+        archive.stat(n, 'messages', len(messages))
+        note = f'（與 {folder(SHARED_LIFE_STUDY[n])} 為同一套信息）' if n in SHARED_LIFE_STUDY else ''
+        print(f'[生命讀經] {base}：{len(messages)} 篇{note}', flush=True)
         for k in sorted(messages)[:message_limit or None]:
-            murl = messages[k]; base = f'life-study/{{}}/{folder}/{k:03d}'
-            mhtml = archive.get(base.format('html')+'.html', murl, 'life_study_html', book=n, message=k)
-            if mhtml is None and (archive.root/(base.format('html')+'.html')).exists():
-                mhtml = (archive.root/(base.format('html')+'.html')).read_bytes()
-            if mhtml is None:
+            murl = messages[k]; stem = f'{base}/{k:03d}'
+            mhtml = archive.get(f'life-study/html/{stem}.html', murl, 'life_study_html', book=n, book_name=name, message=k)
+            if not mhtml:
                 continue
             if want_text:
-                text_file(archive, base.format('text')+'.txt', mhtml, murl, 'life_study_text', book=n, message=k,
-                          message_title=main_text(mhtml)[1])
+                text_file(archive, f'life-study/text/{stem}.txt', mhtml, murl, 'life_study_text', book=n,
+                          book_name=name, message=k, message_title=main_text(mhtml)[1])
             if want_audio:
                 msoup = BeautifulSoup(mhtml, 'html.parser')
                 sources = [urllib.parse.urljoin(murl, tag.get('src')) for tag in msoup.select('audio source[src], audio[src]')]
-                sources = [s for s in dict.fromkeys(sources) if s.endswith('.mp3')]
+                sources = [s for s in dict.fromkeys(sources) if s.lower().endswith('.mp3')]
                 if not sources:
-                    archive.errors.append(dict(path=base.format('audio'), url=murl, kind='life_study_audio', error='No MP3 on page', at=now()))
+                    archive.errors.append(dict(path=f'life-study/audio/{stem}', url=murl, kind='life_study_audio',
+                                               error='No MP3 on page', at=now()))
                 for i, source in enumerate(sources):
                     suffix = '' if i == 0 else f'-{i+1}'
-                    archive.get(base.format('audio')+f'{suffix}.mp3', source, 'life_study_audio', book=n, message=k, page_url=murl)
-
-
-def write_readme(archive, args):
-    rows = list(archive.done.values())
-    def stat(kind):
-        picked = [r for r in rows if r['kind'] == kind]
-        return len(picked), sum(r['bytes'] for r in picked)
-    lines = ['# TWGBR 私人離線資料（恢復本聖經＋生命讀經）', '',
-             f'- 最後更新：{now()}（UTC）；程式：scripts/download_twgbr_archive.py',
-             f'- 本次參數：collections={args.collections}、books={compact(args.books)}、text={not args.no_text}、audio={not args.no_audio}'
-             + (f'、每卷上限 {args.limit_per_book}' if args.limit_per_book else ''),
-             '- 權利：內容 CopyrightⒸ 臺灣福音書房。**僅供個人離線研讀／內部使用，不公開、不轉散布；未經授權不用於模型訓練。**', '',
-             '## 抓取範圍', '',
-             '| 系列 | 來源 | 內容 |', '| --- | --- | --- |',
-             f'| 恢復本聖經 | {SITE}/recoveryversion/bible/01–66.html | 每卷一頁（含全部章節經文）；文字取 #verses 主內容 |',
-             f'| 恢復本經文音訊 | {BIBLE_AUDIO}/<卷>/<章>-<書名>.mp3 | 恢復本頁面播放器載入的每章 MP3 |',
-             f'| 生命讀經 | {SITE}/life-study/1–66.html 及其連到的每篇信息頁 | 每篇一頁；撒母耳記、列王紀、歷代志上下卷共用同一套信息，只存一次 |',
-             f'| 生命讀經音訊 | 每篇信息頁 <audio> 的 MP3（{SITE}/life-study/mp3/…） | 一篇一檔；是講者導讀／轉述，**不是網頁文字的逐字朗讀** |',
-             '', '不追蹤其他連結、不抓其他網站。網站 robots.txt 不存在（404）；預設每秒最多 1 個請求、單一連線。', '',
-             '## 資料夾結構', '', '```text',
-             'README.md                     本說明（每次執行後重寫）',
-             'manifest.jsonl                每個完成檔案：path、url、kind、bytes、sha256、fetched_at、卷／章／篇',
-             'errors.jsonl                  本次失敗項目（重新執行會自動補抓）',
-             'recovery-version/',
-             '  html/01-創世記.html          原始網頁（未修改）',
-             '  text/01-創世記.txt           主內容純文字（章標題＋經文）',
-             '  audio/01-創世記/001.mp3      第 1 章音訊（三位數章號）',
-             'life-study/',
-             '  index/01.html               各卷入口頁（＝第一篇）原始網頁',
-             '  html/01-創世記/001.html      第 1 篇原始網頁',
-             '  text/01-創世記/001.txt       第 1 篇主內容純文字',
-             '  audio/01-創世記/001.mp3      第 1 篇音訊', '```', '',
-             '## 目前數量', '', '| 類別 | 檔案數 | 大小 |', '| --- | --- | --- |']
-    labels = [('bible_html', '恢復本原始網頁'), ('bible_text', '恢復本純文字'), ('bible_audio', '恢復本經文音訊'),
-              ('life_study_index_html', '生命讀經入口頁'), ('life_study_html', '生命讀經原始網頁'),
-              ('life_study_text', '生命讀經純文字'), ('life_study_audio', '生命讀經音訊')]
-    for kind, label in labels:
-        count, size = stat(kind)
-        lines.append(f'| {label} | {count:,} | {size/1048576:,.1f} MiB |')
-    lines += ['', f'本次失敗：{len(archive.errors)} 項（見 errors.jsonl）。HTTP 請求 {archive.requests:,} 次、下載 {archive.downloaded_bytes/1048576:,.1f} MiB。', '',
-              '## 使用與續抓', '', '```bash', 'pip install beautifulsoup4',
-              'python scripts/download_twgbr_archive.py --output <資料夾>', '```', '',
-              '中斷後用同一個 --output 重跑即可，已完成且大小相符的檔案會略過。純文字是 HTML 的衍生檔，原始網頁另存未修改；',
-              'sha256 可用來檢查檔案是否完整。全部音訊約 27GB（經文約 1,189 章、生命讀經約 2,000 篇），請確認磁碟空間。', '']
-    (archive.root/'README.md').write_text('\n'.join(lines), encoding='utf-8')
-    (archive.root/'errors.jsonl').write_text(''.join(json.dumps(e, ensure_ascii=False)+'\n' for e in archive.errors), encoding='utf-8')
+                    archive.get(f'life-study/audio/{stem}{suffix}.mp3', source, 'life_study_audio', book=n,
+                                book_name=name, message=k, page_url=murl)
 
 
 def compact(books):
@@ -289,34 +290,108 @@ def compact(books):
     return ','.join(spans)
 
 
+def write_readme(archive, args):
+    rows = list(archive.done.values())
+    def count(kind, n=None):
+        picked = [r for r in rows if r['kind'] == kind and (n is None or r.get('book') == n)]
+        return len(picked), sum(r['bytes'] for r in picked)
+    lines = ['# TWGBR 私人離線資料（恢復本聖經＋生命讀經）', '',
+             f'- 最後更新：{now()}（UTC）；程式：download_twgbr_archive.py',
+             f'- 本次參數：collections={args.collections}、books={compact(args.books)}、文字={"否" if args.no_text else "是"}、'
+             f'音訊={"否" if args.no_audio else "是"}' + (f'、每卷上限 {args.limit_per_book}' if args.limit_per_book else ''),
+             '- 權利：內容 CopyrightⒸ 臺灣福音書房。**僅供個人離線研讀／內部使用，不公開、不轉散布；未經授權不用於模型訓練。**', '',
+             '## 抓取範圍', '',
+             '| 系列 | 來源 | 內容 |', '| --- | --- | --- |',
+             f'| 恢復本聖經 | {SITE}/recoveryversion/bible/01–66.html | 每卷一頁（含全部章節經文）；文字取 #verses 主內容 |',
+             f'| 恢復本經文音訊 | {BIBLE_AUDIO}/<卷>/<章>-<書名>.mp3 | 恢復本頁面播放器載入的每章 MP3 |',
+             f'| 生命讀經 | {SITE}/life-study/1–66.html 及其連到的每篇信息頁 | 每篇一頁 |',
+             f'| 生命讀經音訊 | 每篇信息頁 <audio> 的 MP3（{SITE}/life-study/mp3/…） | 一篇一檔；是講者導讀，**不是網頁文字的逐字朗讀** |',
+             '', '不追蹤其他連結、不抓其他網站。預設每秒最多 1 個請求、單一連線。',
+             '撒母耳記、列王紀、歷代志的上下卷在網站上是同一套生命讀經，兩卷資料夾都保存（內容相同；相同 MP3 只下載一次，另一卷為本機複製）。', '',
+             '## 資料夾結構', '', '```text',
+             'README.md                              本說明（每次執行後重寫）',
+             'manifest.jsonl                         每個完成檔案：path、url、kind、bytes、sha256、fetched_at、卷／章／篇',
+             'errors.jsonl                           本次失敗項目（重新執行會自動補抓）',
+             'recovery-version/',
+             '  html/01-創世記.html                   原始網頁（未修改）',
+             '  text/01-創世記.txt                    主內容純文字（章標題、綱目、經文；經節號碼在行首）',
+             '  audio/01-創世記/001.mp3               第 1 章音訊（三位數章號）',
+             'life-study/',
+             '  index/01-創世記.html                  各卷入口頁（＝第一篇）原始網頁',
+             '  html/01-創世記/001.html               第 1 篇原始網頁',
+             '  text/01-創世記/001.txt                第 1 篇主內容純文字',
+             '  audio/01-創世記/001.mp3               第 1 篇音訊',
+             '```', '', '資料夾一律為「兩位數卷號-標準書名」：01-創世記 … 66-啟示錄。', '',
+             '## 總數', '', '| 類別 | 檔案數 | 大小 |', '| --- | --- | --- |']
+    labels = [('bible_html', '恢復本原始網頁'), ('bible_text', '恢復本純文字'), ('bible_audio', '恢復本經文音訊'),
+              ('life_study_index_html', '生命讀經入口頁'), ('life_study_html', '生命讀經原始網頁'),
+              ('life_study_text', '生命讀經純文字'), ('life_study_audio', '生命讀經音訊')]
+    for kind, label in labels:
+        c, size = count(kind)
+        lines.append(f'| {label} | {c:,} | {size/1048576:,.1f} MiB |')
+    lines += ['', '## 逐卷清單', '', '「已存／應有」：應有數取自網站（恢復本章數取自頁面播放器設定，生命讀經篇數取自入口頁連結）。', '',
+              '| 卷 | 恢復本文字 | 經文音訊（已存／章數） | 生命讀經文字（已存／篇數） | 生命讀經音訊 |',
+              '| --- | --- | --- | --- | --- |']
+    for n in range(1, 67):
+        stats = archive.book_stats.get(n, {})
+        ch = stats.get('chapters', '?'); ms = stats.get('messages', '?')
+        lines.append(f'| {folder(n)} | {"✓" if count("bible_text", n)[0] else "—"} | {count("bible_audio", n)[0]}／{ch} | '
+                     f'{count("life_study_text", n)[0]}／{ms} | {count("life_study_audio", n)[0]} |')
+    lines += ['', f'本次失敗：{len(archive.errors)} 項（見 errors.jsonl）。本次 HTTP 請求 {archive.requests:,} 次、下載 {archive.downloaded_bytes/1048576:,.1f} MiB。'
+              '「?」表示這次沒有處理該卷（例如用 --books 只抓部分書卷）。', '',
+              '## 使用與續抓', '', '```bash', 'pip install beautifulsoup4',
+              'python download_twgbr_archive.py --output <資料夾>', '```', '',
+              '中斷後用同一個 --output 重跑即可，已完成且大小相符的檔案會略過。加 --zip <檔名>.zip 可產生壓縮檔（檔名以 UTF-8 標記，Windows 解壓不會變亂碼）。',
+              '純文字是 HTML 的衍生檔，原始網頁另存未修改；sha256 可檢查檔案完整性。全部音訊約 27GB（經文 1,189 章、生命讀經 1,984 個不重複音訊），請確認磁碟空間。', '']
+    (archive.root/'README.md').write_text('\n'.join(lines), encoding='utf-8')
+    (archive.root/'errors.jsonl').write_text(''.join(json.dumps(e, ensure_ascii=False)+'\n' for e in archive.errors), encoding='utf-8')
+
+
+def make_zip(root, target):
+    """Python zipfile 會為中文檔名設定 UTF-8 旗標，Windows／macOS 解壓不會出現亂碼。"""
+    root = Path(root); target = Path(target).resolve()
+    with zipfile.ZipFile(target, 'w') as bundle:
+        for path in sorted(root.rglob('*')):
+            if path.is_file() and path.resolve() != target and not path.name.endswith('.part'):
+                method = zipfile.ZIP_STORED if path.suffix.lower() == '.mp3' else zipfile.ZIP_DEFLATED
+                bundle.write(path, Path(root.name)/path.relative_to(root), compress_type=method)
+    return target
+
+
 def parse_books(value):
     books = set()
     for part in value.split(','):
-        a, _, b = part.partition('-')
+        a, _, b = part.strip().partition('-')
         books.update(range(int(a), int(b or a)+1))
     if not books or min(books) < 1 or max(books) > 66:
-        raise argparse.ArgumentTypeError('books must be within 1-66, e.g. 1-66 or 1,40-43')
+        raise argparse.ArgumentTypeError('books 必須在 1–66 之間，例如 1-66 或 1,40-43')
     return sorted(books)
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors='replace')  # 舊版 Windows 主控台遇到中文不中斷
+        except (AttributeError, ValueError):
+            pass
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--output', default='data/twgbr-archive', help='Archive folder (default: data/twgbr-archive)')
-    parser.add_argument('--collections', default='bible,life-study', help='bible, life-study or both')
-    parser.add_argument('--books', type=parse_books, default=parse_books('1-66'), help='Book numbers, e.g. 1-66 or 8,57')
-    parser.add_argument('--no-text', action='store_true', help='Skip text extraction (raw HTML is still saved)')
-    parser.add_argument('--no-audio', action='store_true', help='Skip MP3 downloads')
-    parser.add_argument('--limit-per-book', type=int, default=0, help='Test run: max chapters/messages per book')
-    parser.add_argument('--interval', type=float, default=1.0, help='Seconds between requests (minimum 0.5)')
+    parser.add_argument('--output', default='twgbr-archive', help='輸出資料夾（預設 twgbr-archive）')
+    parser.add_argument('--collections', default='bible,life-study', help='bible、life-study 或兩者（逗號分隔）')
+    parser.add_argument('--books', type=parse_books, default=parse_books('1-66'), help='卷號，例如 1-66 或 8,57')
+    parser.add_argument('--no-text', action='store_true', help='不產生純文字（原始網頁仍會保存）')
+    parser.add_argument('--no-audio', action='store_true', help='不下載 MP3')
+    parser.add_argument('--limit-per-book', type=int, default=0, help='試跑：每卷最多幾章／幾篇')
+    parser.add_argument('--interval', type=float, default=1.0, help='請求間隔秒數（最低 0.5）')
     parser.add_argument('--retries', type=int, default=2)
     parser.add_argument('--timeout', type=int, default=60)
     parser.add_argument('--max-file-mb', type=int, default=80)
+    parser.add_argument('--zip', help='完成後把輸出資料夾打包成此 zip 檔（UTF-8 檔名）')
     args = parser.parse_args()
     if args.interval < 0.5:
-        parser.error('--interval must be at least 0.5 seconds')
+        parser.error('--interval 至少 0.5 秒')
     collections = {c.strip() for c in args.collections.split(',')}
     if not collections <= {'bible', 'life-study'}:
-        parser.error('--collections accepts bible and/or life-study')
+        parser.error('--collections 只接受 bible 和／或 life-study')
     archive = Archive(args.output, args.interval, args.retries, args.timeout, args.max_file_mb*1048576)
     try:
         if 'bible' in collections:
@@ -328,6 +403,8 @@ def main():
     finally:
         write_readme(archive, args)
     print(f'完成：{len(archive.done):,} 個檔案已記錄，本次失敗 {len(archive.errors)} 項；說明見 {archive.root/"README.md"}')
+    if args.zip:
+        print(f'壓縮檔：{make_zip(archive.root, args.zip)}')
     return 1 if archive.errors else 0
 
 
