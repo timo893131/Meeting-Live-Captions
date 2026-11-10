@@ -40,18 +40,36 @@ class ColabNotebookTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()),self.assertRaisesRegex(RuntimeError,'exit 1'):
             self.helper()([sys.executable,'-c','raise SystemExit(1)'])
 
-    def test_collect_stage_runs_bounded_download_to_separate_drive_pilot_root(self):
+    def run_collect_cell(self,pilot,enable_collection=False):
+        calls=[]
+        def fake_step(command,**kwargs):
+            calls.append((command,kwargs))
+            return subprocess.CompletedProcess(command,0,stdout='')
+        namespace=dict(WORKFLOW_STAGE='collect',PILOT_ROOT=pilot,REPO=ROOT,sys=sys,run_step=fake_step)
+        cell=next(c for c in self.notebook()['cells'] if c.get('id')=='cloud-whisper-06')
+        source=''.join(cell['source'])
+        if enable_collection:
+            self.assertIn('RUN_COLLECTION = False',source)
+            source=source.replace('RUN_COLLECTION = False','RUN_COLLECTION = True',1)
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):exec(source,namespace)
+        return calls,namespace,output.getvalue()
+
+    def test_collect_stage_skips_disabled_fleurs_download_and_points_to_crawler(self):
+        # FLEURS cmn_hant_tw matched 0 records (docs/tasks/2026-11-02-taiwan-mandarin-pilot.md),
+        # so the default notebook must not retry the download.
+        with tempfile.TemporaryDirectory() as folder:
+            calls,namespace,output=self.run_collect_cell(Path(folder)/'pilots/taiwan-mandarin-v1')
+            self.assertEqual(calls,[])
+            self.assertFalse(namespace['RUN_COLLECTION'])
+            self.assertIn('crawl_church_sources.ipynb',output)
+
+    def test_collect_stage_runs_bounded_download_to_separate_drive_pilot_root_when_enabled(self):
         with tempfile.TemporaryDirectory() as folder:
             pilot=Path(folder)/'pilots/taiwan-mandarin-v1'
             (pilot/'reports').mkdir(parents=True)
             (pilot/'reports/collection-report.json').write_text('{"status":"synthetic_test_only","audio_downloaded":0}')
-            calls=[]
-            def fake_step(command,**kwargs):
-                calls.append((command,kwargs))
-                return subprocess.CompletedProcess(command,0,stdout='')
-            namespace=dict(WORKFLOW_STAGE='collect',PILOT_ROOT=pilot,REPO=ROOT,sys=sys,run_step=fake_step)
-            cell=next(c for c in self.notebook()['cells'] if c.get('id')=='cloud-whisper-06')
-            with contextlib.redirect_stdout(io.StringIO()):exec(''.join(cell['source']),namespace)
+            calls,namespace,_=self.run_collect_cell(pilot,enable_collection=True)
             self.assertEqual(len(calls),1)
             self.assertTrue(namespace['RUN_COLLECTION'])
             self.assertIn(str(pilot),calls[0][0])
