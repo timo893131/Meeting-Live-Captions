@@ -31,6 +31,10 @@ python scripts/download_twgbr_archive.py --output twgbr-archive
 
 預估：全部音訊約 27GB（經文 1,189 章，每章約 4–8MB；生命讀經 1,984 個不重複音訊，每篇約 2–10MB），以每秒 1 個請求計算，全部約需數小時，視網速而定。
 
+## 用 Google Colab 下載到 Google Drive（不用自己的電腦）
+
+開啟 [notebooks/download_twgbr_archive.ipynb](../notebooks/download_twgbr_archive.ipynb)（Colab：檔案 → 開啟筆記本 → GitHub），由上而下逐格執行。資料直接存到「我的雲端硬碟/twgbr-archive」。筆記本會取得固定 commit 的程式並核對 SHA-256，再用 `--quiet` 執行；第 5 格逐卷檢查是否完成，並把檔案同步到 Drive。Colab 斷線時，重新從第 1 格執行即可續抓。
+
 ## 公司網路／HTTPS 檢查（CERTIFICATE_VERIFY_FAILED）
 
 若出現 `self-signed certificate in certificate chain`，代表網路會重新簽署 HTTPS（常見於公司網路或防毒軟體）。程式會在第一次失敗時停止並顯示說明。處理方式（不關閉憑證驗證）：
