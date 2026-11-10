@@ -202,7 +202,8 @@ def life_study(archive, books, want_text, want_audio, message_limit):
         for link in soup.find_all('a', href=True):
             target = urllib.parse.urljoin(url, link['href']).split('#')[0]
             match = pattern.search(urllib.parse.urlsplit(target).path)
-            if match and urllib.parse.urlsplit(target).hostname == 'line.twgbr.org':
+            # 網站上偶有 <n>_0.html 的壞連結（404），不是實際篇章。
+            if match and urllib.parse.urlsplit(target).hostname == 'line.twgbr.org' and match.group(1) != '0':
                 messages[int(match.group(1) or 1)] = target
         messages.setdefault(1, url)
         # 撒母耳記、列王紀、歷代志上下卷網址不同但內容相同；以入口頁主內容判斷，只存一次。
@@ -240,7 +241,7 @@ def write_readme(archive, args):
         return len(picked), sum(r['bytes'] for r in picked)
     lines = ['# TWGBR 私人離線資料（恢復本聖經＋生命讀經）', '',
              f'- 最後更新：{now()}（UTC）；程式：scripts/download_twgbr_archive.py',
-             f'- 本次參數：collections={args.collections}、books={args.books}、text={not args.no_text}、audio={not args.no_audio}'
+             f'- 本次參數：collections={args.collections}、books={compact(args.books)}、text={not args.no_text}、audio={not args.no_audio}'
              + (f'、每卷上限 {args.limit_per_book}' if args.limit_per_book else ''),
              '- 權利：內容 CopyrightⒸ 臺灣福音書房。**僅供個人離線研讀／內部使用，不公開、不轉散布；未經授權不用於模型訓練。**', '',
              '## 抓取範圍', '',
@@ -277,6 +278,15 @@ def write_readme(archive, args):
               'sha256 可用來檢查檔案是否完整。全部音訊約 27GB（經文約 1,189 章、生命讀經約 2,000 篇），請確認磁碟空間。', '']
     (archive.root/'README.md').write_text('\n'.join(lines), encoding='utf-8')
     (archive.root/'errors.jsonl').write_text(''.join(json.dumps(e, ensure_ascii=False)+'\n' for e in archive.errors), encoding='utf-8')
+
+
+def compact(books):
+    spans, start = [], None
+    for i, b in enumerate(books):
+        start = b if start is None else start
+        if i+1 == len(books) or books[i+1] != b+1:
+            spans.append(str(start) if start == b else f'{start}-{b}'); start = None
+    return ','.join(spans)
 
 
 def parse_books(value):
