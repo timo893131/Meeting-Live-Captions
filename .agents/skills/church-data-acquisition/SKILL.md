@@ -30,3 +30,5 @@ description: 蒐集或爬取聖經詞彙、講道文字、授權音檔與教會�
 指定 TWGBR 資源時，按需讀 [來源檢查](../../../docs/twgbr-source-review.md)，使用 `python scripts/review_sources.py` 先做有限 seed 檢查；此工具不會遞迴爬取或核准訓練權利。
 
 對已取得的 TWGBR review report，可用 `scripts/inspect_twgbr.py` 離線盤點；`scripts/probe_audio.py` 只讀取有限 byte range。依 `requirements-data.txt` 準備工具。篇號／檔名吻合不等於逐字對齊；任務只要求盤點或尚無訓練授權時，不擴大到模型訓練。
+
+詞彙用途的 TWGBR 全書文字擷取用 `sources/church-crawl-text-v2.json`（固定 seed、不遞迴、不下載音訊）；`scripts/extract_church_terms.py` 產生 pending_review 詞彙候選與用字差異。內部評估音訊只用 `scripts/fetch_church_audio.py` 取已索引的少量檔案。現況與限制見 [教會詞彙調適](../../../docs/church-vocabulary-adaptation.md)。
