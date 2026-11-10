@@ -86,6 +86,25 @@ test('microphone state waits for actual startup, deduplicates final results, and
   await expect(page.locator('#stop')).toBeDisabled();
 });
 
+test('same-sound church-term correction applies to captions, follows the toggle and host-added terms', async t => {
+  const {page} = await fixture(t);
+  await expect(page.locator('#phonetic')).toBeChecked();
+  await start(page);
+  await page.waitForFunction(() => performance.getEntriesByType('resource').some(entry => entry.name.endsWith('/pinyin-zh.js')));
+  await page.waitForTimeout(300);
+  await page.evaluate(() => window.__speech.emit('我們來讀以服所書，詔會生活'));
+  await expect(page.locator('#captions')).toContainText('我們來讀以弗所書，召會生活');
+  await page.locator('#settings summary').click();
+  await page.locator('#glossary').fill('王弟兄');
+  await page.evaluate(() => window.__speech.emit('今天王第兄分享'));
+  await expect(page.locator('#captions')).toContainText('今天王弟兄分享');
+  await page.locator('#phonetic').uncheck();
+  await page.evaluate(() => window.__speech.emit('生命毒精'));
+  await expect(page.locator('#captions')).toContainText('生命毒精');
+  await page.reload();
+  await expect(page.locator('#phonetic')).not.toBeChecked();
+});
+
 test('reading history keeps scroll and focus; latest, font persistence and focus mode work', async t => {
   const {page} = await fixture(t); await start(page);
   await page.evaluate(() => {

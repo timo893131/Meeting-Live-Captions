@@ -1,4 +1,5 @@
 import {defaultGlossary, parseGlossary, correctText} from '/glossary.js';
+import {DEFAULT_TERMS, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '/phonetic.js';
 
 const $ = id => document.getElementById(id);
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -175,6 +176,17 @@ const speechErrors = {
   network: '語音服務連線中斷。請確認網路，再按開始收音。',
   'language-not-supported': '語音服務不支援目前語言，請切換語言後再試。'
 };
+// Same-sound church-term correction: the pinyin data is loaded once, only when someone starts captioning.
+let pinyinLoading = null;
+function ensurePinyin() {
+  if (!$('phonetic').checked || pinyinReady() || pinyinLoading) return;
+  pinyinLoading = import('/pinyin-zh.js').then(loadPinyin).catch(() => { pinyinLoading = null; });
+}
+function correctCaption(text, glossary, terms) {
+  const exact = correctText(text, glossary);
+  return $('phonetic').checked ? phoneticCorrect(exact, terms).text : exact;
+}
+
 function beginRecognition(run) {
   if (!wantsAudio || run !== speechGeneration) return;
   if (mode === 'host' && roomState !== 'ready') { stopAudio({discard: true}); return; }
@@ -188,8 +200,9 @@ function beginRecognition(run) {
     if (!current()) return;
     let interim = '';
     const glossary = parseGlossary($('glossary').value);
+    const terms = [...DEFAULT_TERMS, ...parseTerms($('glossary').value)];
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i], text = correctText(result[0].transcript, glossary);
+      const result = event.results[i], text = correctCaption(result[0].transcript, glossary, terms);
       if (result.isFinal) {
         if (!completedResults.has(i)) { completedResults.add(i); sendCaption(text, true); }
       } else if (wantsAudio) interim += text;
@@ -225,7 +238,7 @@ function startAudio() {
   if (mode === 'host' && roomState !== 'ready') return message('房間尚未連線，請等待連線完成。');
   message(); wantsAudio = true; shortEnds = 0; micState = 'starting';
   const run = ++speechGeneration;
-  updateUI(); beginRecognition(run);
+  ensurePinyin(); updateUI(); beginRecognition(run);
 }
 
 function disconnect() {
@@ -421,8 +434,15 @@ $('export').onclick = () => {
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = '聚會字幕.txt'; link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 };
+$('phonetic').onchange = () => {
+  try { localStorage.setItem('phoneticCorrection', $('phonetic').checked ? 'on' : 'off'); } catch {}
+  if (wantsAudio) ensurePinyin();
+};
 let savedGlossary;
-try { savedGlossary = localStorage.getItem('churchGlossary'); applyFontSize(localStorage.getItem('captionFontSize')); } catch {}
+try {
+  savedGlossary = localStorage.getItem('churchGlossary'); applyFontSize(localStorage.getItem('captionFontSize'));
+  $('phonetic').checked = localStorage.getItem('phoneticCorrection') !== 'off';
+} catch {}
 $('glossary').value = savedGlossary ?? defaultGlossary.map(pair => pair.join('=')).join('\n');
 
 async function initialize() {

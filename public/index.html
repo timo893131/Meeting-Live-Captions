@@ -58,7 +58,9 @@
     <details id="settings" class="card">
       <summary>語音與教會詞彙設定</summary>
       <label>辨識語言<select id="language"><option value="zh-TW">繁體中文／國語</option><option value="en-US">English</option></select></label>
-      <p class="hint">每行輸入「辨識結果=正確詞彙」。依講員與聚會用語調整，校正後的字幕也會分享給房間內的人。</p>
+      <label class="check"><input type="checkbox" id="phonetic" checked> 同音教會專名校正（例：以服所書→以弗所書、詔會→召會）</label>
+      <p class="hint">讀音完全相同才會改，只處理書卷名與教會專名，不改一般用字。</p>
+      <p class="hint">每行輸入「辨識結果=正確詞彙」做固定替換；只寫一個詞（不含「=」）會加入同音校正，例如講員或地名。依講員與聚會用語調整，校正後的字幕也會分享給房間內的人。</p>
       <label>詞彙校正表<textarea id="glossary" rows="10" spellcheck="false"></textarea></label>
       <div class="actions"><button id="saveGlossary">儲存詞彙表</button><button id="resetGlossary">恢復預設</button></div>
       <p class="hint">詞彙表儲存在這台瀏覽器。這是文字校正，並非模型訓練；相同字詞的項目僅用於整理專有名詞。</p>
