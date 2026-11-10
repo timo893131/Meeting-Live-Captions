@@ -133,9 +133,18 @@ def chrome_segments(path):
     return segments
 
 
+def decode_audio(path):
+    """16 kHz mono float32 via ffmpeg, so results do not depend on the installed PyAV version."""
+    import numpy as np
+    raw = subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-i', str(path), '-f', 's16le', '-ac', '1', '-ar', '16000', '-'],
+                         capture_output=True, check=True).stdout
+    return np.frombuffer(raw, np.int16).astype(np.float32) / 32768.0
+
+
 def transcribe(model, audio, prompt):
+    samples = decode_audio(audio)
     started = time.monotonic()
-    segments, info = model.transcribe(str(audio), language='zh', task='transcribe', beam_size=5, temperature=0,
+    segments, info = model.transcribe(samples, language='zh', task='transcribe', beam_size=5, temperature=0,
                                       vad_filter=True, condition_on_previous_text=False, initial_prompt=prompt)
     texts = [s.text for s in segments]
     elapsed = time.monotonic() - started
