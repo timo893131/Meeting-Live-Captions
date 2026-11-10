@@ -176,6 +176,13 @@ def main():
         device = args.device if args.device != 'auto' else ('cuda' if ctranslate2.get_cuda_device_count() else 'cpu')
         model = WhisperModel(args.model_dir, device=device, compute_type='float16' if device == 'cuda' else 'int8',
                              local_files_only=True)
+        try:  # Fail fast (e.g. missing libcublas.so.12) before spending time on long audio.
+            import numpy as np
+            list(model.transcribe(np.zeros(16000, np.float32), language='zh')[0])
+        except RuntimeError as error:
+            raise SystemExit(f'模型無法在 {device} 上執行：{error}\n'
+                             '若是缺少 libcublas／libcudnn：請安裝 nvidia-cublas-cu12、nvidia-cudnn-cu12 並設定 LD_LIBRARY_PATH'
+                             '（Colab 筆記本第 3 格會自動處理）。') from error
         print(f'模型 {args.model_label}，裝置 {device}', flush=True)
     terms = church_terms()
     report = dict(created_at=datetime.now(timezone.utc).isoformat(timespec='seconds'), sealed_test=True,
