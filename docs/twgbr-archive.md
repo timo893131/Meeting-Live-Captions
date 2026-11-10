@@ -31,6 +31,16 @@ python scripts/download_twgbr_archive.py --output twgbr-archive
 
 預估：全部音訊約 27GB（經文 1,189 章，每章約 4–8MB；生命讀經 1,984 個不重複音訊，每篇約 2–10MB），以每秒 1 個請求計算，全部約需數小時，視網速而定。
 
+## 公司網路／HTTPS 檢查（CERTIFICATE_VERIFY_FAILED）
+
+若出現 `self-signed certificate in certificate chain`，代表網路會重新簽署 HTTPS（常見於公司網路或防毒軟體）。程式會在第一次失敗時停止並顯示說明。處理方式（不關閉憑證驗證）：
+
+```bash
+python -m pip install truststore
+```
+
+安裝後程式會自動改用作業系統的憑證庫，與瀏覽器相同。若仍失敗，從瀏覽器匯出網站憑證路徑最上層的根憑證（Base-64 .cer），再加上 `--ca-bundle company-root.cer`。
+
 ## 輸出
 
 每次執行結束會在輸出資料夾重寫 README.md，內容包括抓取範圍、資料夾結構、各類總數、66 卷逐卷清單（已存數／網站應有數）與失敗數。另外有：

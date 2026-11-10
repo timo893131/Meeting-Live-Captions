@@ -51,6 +51,22 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(arch.bible_audio_url(19, 1, 150, 'Psalms'), base+'/19/001-Psalms.mp3')
         self.assertEqual(arch.bible_audio_url(19, 150, 150, 'Psalms'), base+'/19/150-Psalms.mp3')
 
+    def test_certificate_failure_stops_instead_of_logging_every_book(self):
+        class CertFail(FakeArchive):
+            def fetch(self, url):
+                self.calls.append(url); raise arch.CertificateProblem('self-signed certificate in certificate chain')
+        with tempfile.TemporaryDirectory() as folder:
+            archive = CertFail(folder, {})
+            with self.assertRaises(arch.CertificateProblem):
+                arch.bible(archive, [1, 2, 3], True, False, 0)
+            self.assertEqual(len(archive.calls), 1)
+
+    def test_ssl_context_keeps_verification_on(self):
+        context, _ = arch.ssl_context()
+        self.assertEqual(context.verify_mode, arch.ssl.CERT_REQUIRED)
+        with self.assertRaises(OSError):
+            arch.ssl_context('/nonexistent/company-root.cer')
+
     def test_scope_rejects_other_hosts(self):
         archive = arch.Archive(tempfile.mkdtemp(), 0.5, 0, 5, 1000)
         with self.assertRaises(ValueError):

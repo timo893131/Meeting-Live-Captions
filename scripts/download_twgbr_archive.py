@@ -25,6 +25,7 @@ import hashlib
 import json
 import re
 import shutil
+import ssl
 import sys
 import time
 import urllib.error
@@ -64,8 +65,43 @@ def folder(n):
     return f'{n:02d}-{BOOKS[n-1]}'
 
 
+class CertificateProblem(Exception):
+    """HTTPS 憑證驗證失敗：每個請求都會一樣失敗，立刻停止並說明處理方式。"""
+
+
+CERT_HELP = '''
+HTTPS 憑證驗證失敗（CERTIFICATE_VERIFY_FAILED）。常見原因是公司網路或防毒軟體會檢查 HTTPS，
+用自己的憑證重新簽署連線；瀏覽器信任它，但 Python 預設不認得。請擇一處理（不要關閉憑證驗證）：
+
+  1) 安裝 truststore，讓程式改用 Windows／macOS 的系統憑證庫（瀏覽器能開網站時通常就能解決）：
+       python -m pip install truststore
+     然後重新執行同一個指令。
+
+  2) 若仍失敗：在瀏覽器開 https://line.twgbr.org ，檢視網站憑證 → 憑證路徑最上層的根憑證 →
+     匯出成「Base-64 編碼 X.509 (.CER)」，例如存成 company-root.cer，再執行：
+       python download_twgbr_archive.py --output twgbr-archive --ca-bundle company-root.cer
+     （注意 plan.bible365.today 的音訊也要能通過同一張憑證；公司 IT 也可提供這個根憑證。）
+
+已完成的檔案都有記錄，修好後重新執行會續抓。
+'''
+
+
+def ssl_context(ca_bundle=None):
+    """回傳 (context, 說明)。優先：--ca-bundle → truststore（系統憑證庫）→ Python 預設。"""
+    if ca_bundle:
+        context = ssl.create_default_context()
+        context.load_verify_locations(cafile=ca_bundle)  # 加入，不取代預設信任清單
+        return context, f'Python 預設＋{ca_bundle}'
+    try:
+        import truststore
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT), 'truststore（系統憑證庫）'
+    except ImportError:
+        return ssl.create_default_context(), 'Python 預設（未安裝 truststore）'
+
+
 class Archive:
-    def __init__(self, root, interval=1.0, retries=2, timeout=60, max_bytes=80*1048576):
+    def __init__(self, root, interval=1.0, retries=2, timeout=60, max_bytes=80*1048576, context=None):
+        self.context = context
         self.root = Path(root); self.root.mkdir(parents=True, exist_ok=True)
         self.interval, self.retries, self.timeout, self.max_bytes = interval, retries, timeout, max_bytes
         self.manifest_path = self.root/'manifest.jsonl'
@@ -89,7 +125,7 @@ class Archive:
             self.last = time.monotonic(); self.requests += 1
             try:
                 request = urllib.request.Request(url, headers={'User-Agent': UA})
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                with urllib.request.urlopen(request, timeout=self.timeout, context=self.context) as response:
                     final = urllib.parse.urlsplit(response.geturl()).hostname
                     if final not in HOSTS:
                         raise ValueError('Redirected outside archive scope: '+response.geturl())
@@ -109,7 +145,11 @@ class Archive:
                     time.sleep(min(120, int(retry)) if retry.isdigit() else 5*(attempt+1))
                     continue
                 raise
-            except (urllib.error.URLError, TimeoutError, IOError):
+            except ssl.SSLCertVerificationError as error:
+                raise CertificateProblem(str(error)) from error
+            except (urllib.error.URLError, TimeoutError, IOError) as error:
+                if isinstance(getattr(error, 'reason', None), ssl.SSLCertVerificationError):
+                    raise CertificateProblem(str(error.reason)) from error
                 if attempt < self.retries:
                     time.sleep(5*(attempt+1)); continue
                 raise
@@ -152,6 +192,8 @@ class Archive:
                 return True
         try:
             data = self.fetch(url)
+        except CertificateProblem:
+            raise
         except Exception as error:
             self.errors.append(dict(path=rel, url=url, kind=kind, error=f'{type(error).__name__}: {error}'[:300], at=now()))
             print(f'  ! {rel}: {self.errors[-1]["error"]}', flush=True)
@@ -385,6 +427,7 @@ def main():
     parser.add_argument('--retries', type=int, default=2)
     parser.add_argument('--timeout', type=int, default=60)
     parser.add_argument('--max-file-mb', type=int, default=80)
+    parser.add_argument('--ca-bundle', help='額外信任的根憑證檔（PEM／Base-64 .cer），用於公司網路的 HTTPS 檢查')
     parser.add_argument('--zip', help='完成後把輸出資料夾打包成此 zip 檔（UTF-8 檔名）')
     args = parser.parse_args()
     if args.interval < 0.5:
@@ -392,7 +435,12 @@ def main():
     collections = {c.strip() for c in args.collections.split(',')}
     if not collections <= {'bible', 'life-study'}:
         parser.error('--collections 只接受 bible 和／或 life-study')
-    archive = Archive(args.output, args.interval, args.retries, args.timeout, args.max_file_mb*1048576)
+    try:
+        context, trust = ssl_context(args.ca_bundle)
+    except (OSError, ssl.SSLError) as error:
+        parser.error(f'--ca-bundle 無法讀取：{error}')
+    print(f'HTTPS 憑證來源：{trust}', flush=True)
+    archive = Archive(args.output, args.interval, args.retries, args.timeout, args.max_file_mb*1048576, context)
     try:
         if 'bible' in collections:
             bible(archive, args.books, not args.no_text, not args.no_audio, args.limit_per_book)
@@ -400,6 +448,10 @@ def main():
             life_study(archive, args.books, not args.no_text, not args.no_audio, args.limit_per_book)
     except KeyboardInterrupt:
         print('中斷；已完成的檔案已記錄，重新執行會續抓。', file=sys.stderr)
+    except CertificateProblem as error:
+        write_readme(archive, args)
+        print(f'\n停止：{error}\n{CERT_HELP}', file=sys.stderr)
+        return 2
     finally:
         write_readme(archive, args)
     print(f'完成：{len(archive.done):,} 個檔案已記錄，本次失敗 {len(archive.errors)} 項；說明見 {archive.root/"README.md"}')
