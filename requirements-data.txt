@@ -13,3 +13,5 @@ regex==2026.11.9
 wcwidth==0.9.4
 opencc-python-reimplemented==0.1.7
 locate==1.1.1
+# Sealed meeting evaluation (evaluate_meet.py)
+rapidfuzz==3.14.1
