@@ -13,6 +13,12 @@ let micState = 'idle', wakeLock = null, wakePending = false;
 // Audio-file test: the file plays into a Web Audio stream (not the speakers) whose track is recognized.
 let fileSource = null;
 const FILE_RETRIES = 8;
+// Diagnostics for the audio-file test (kept after it stops, downloadable as JSON lines).
+let fileLog = null, fileStats = null;
+function diag(type, data = {}) {
+  if (!fileLog || !fileSource) return;
+  fileLog.push({t: +((performance.now() - fileStats.began) / 1000).toFixed(1), at: +fileSource.audio.currentTime.toFixed(1), type, ...data});
+}
 
 function message(text = '', kind = 'error') {
   $('message').textContent = text;
@@ -210,6 +216,7 @@ function beginRecognition(run) {
     // Audio-file test: the file only plays while a recognition session is running, so nothing is skipped
     // while Chrome reconnects between sessions.
     if (fileSource && !fileSource.audio.ended) fileSource.audio.play().catch(() => {});
+    if (fileSource) { fileStats.sessions++; diag('start'); }
   };
   rec.onresult = event => {
     if (!current()) return;
@@ -222,10 +229,21 @@ function beginRecognition(run) {
         if (!completedResults.has(i)) { completedResults.add(i); sendCaption(text, true); }
       } else if (wantsAudio) interim += text;
     }
-    if (fileSource) { fileSource.pending = interim; fileSource.failures = 0; }
+    if (fileSource) {
+      const finals = [];
+      for (let i = event.resultIndex; i < event.results.length; i++) if (event.results[i].isFinal) finals.push(event.results[i][0].transcript.length);
+      fileStats.finals += finals.length;
+      // An unfinished phrase that shrinks without any final result was thrown away by the recognizer.
+      const dropped = !finals.length && fileSource.pending.length >= 8 && interim.length < fileSource.pending.length / 2;
+      if (dropped) fileStats.drops++;
+      diag(dropped ? 'interim-dropped' : 'result', {index: event.resultIndex, total: event.results.length, finals,
+        interim: interim.length, before: fileSource.pending.length});
+      fileSource.pending = interim; fileSource.failures = 0;
+    }
     sendCaption(interim, false);
   };
   rec.onerror = event => {
+    if (fileSource && current()) { fileStats.errors++; diag('error', {error: event.error}); }
     if (!current() || !wantsAudio || event.error === 'no-speech') return;
     // Audio-file test: transient service errors are retried (with back-off in onend) instead of stopping.
     if (fileSource && ['network', 'aborted'].includes(event.error)) { fileSource.failures++; return; }
@@ -238,6 +256,7 @@ function beginRecognition(run) {
     if (!wantsAudio) return;
     if (fileSource) {
       const source = fileSource, audio = source.audio;
+      diag('end', {pending: source.pending.length});
       if (source.pending) { sendCaption(source.pending, true); source.pending = ''; }  // keep the unfinished phrase
       sendCaption('', false);
       if (!audio.ended) { audio.pause(); audio.currentTime = Math.max(0, audio.currentTime - 1); }
@@ -415,8 +434,13 @@ $('testAudio').onchange = async () => {
   const audio = new Audio(URL.createObjectURL(file)), context = new AudioContext();
   const output = context.createMediaStreamDestination();
   context.createMediaElementSource(audio).connect(output);  // not connected to the speakers
-  audio.ontimeupdate = () => { $('fileProgress').textContent = `音檔辨識中：${clock(audio.currentTime)} / ${clock(audio.duration)}`; };
+  audio.ontimeupdate = () => {
+    if (fileSource?.audio !== audio) return;  // also skips the playback check before the test starts
+    $('fileProgress').textContent = `音檔辨識中：${clock(audio.currentTime)} / ${clock(audio.duration)}｜辨識階段 ${fileStats.sessions} 次｜`
+      + `確定字幕 ${fileStats.finals} 句｜錯誤 ${fileStats.errors} 次｜辨識中文字被丟棄 ${fileStats.drops} 次`;
+  };
   audio.onended = () => {
+    diag('audio-ended');
     // Give the recognizer a moment to return the last final result.
     setTimeout(() => { if (fileSource?.audio === audio) { stopAudio(); message('音檔辨識完成，可以按「下載字幕」。', 'success'); } }, 4000);
   };
@@ -425,10 +449,19 @@ $('testAudio').onchange = async () => {
   try { await context.resume(); await audio.play(); audio.pause(); audio.currentTime = 0; }
   catch { context.close().catch(() => {}); $('testAudio').value = ''; return message('無法讀取這個音檔，請改用 mp3、m4a 或 wav。'); }
   fileSource = {audio, context, track: output.stream.getAudioTracks()[0], pending: '', failures: 0};
-  $('fileProgress').hidden = false;
+  fileStats = {began: performance.now(), sessions: 0, finals: 0, errors: 0, drops: 0};
+  fileLog = [{type: 'file', name: file.name, duration: +audio.duration.toFixed(1), browser: navigator.userAgent,
+    language: $('language').value, phonetic: $('phonetic').checked, sampleRate: context.sampleRate}];
+  $('fileProgress').hidden = false; $('diagnostics').hidden = false;
   startAudio();
 };
 $('stop').onclick = () => stopAudio();
+$('diagnostics').onclick = () => {
+  if (!fileLog) return;
+  const blob = new Blob([fileLog.map(entry => JSON.stringify(entry)).join('\n') + '\n'], {type: 'application/json'});
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = '音檔測試診斷紀錄.jsonl'; link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+};
 $('reconnect').onclick = () => { retryCount = 0; terminal = false; connectRoom(); };
 $('joinForm').onsubmit = event => {
   event.preventDefault(); stopAudio({discard: true}); disconnect(); clearSession();
