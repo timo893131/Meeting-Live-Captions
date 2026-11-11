@@ -66,8 +66,22 @@ def normalize(text, converter=None):
 
 
 def church_terms():
+    """Bible books + core church terms (public/church-terms.js string literals, not import paths)."""
     source = (ROOT/'public/church-terms.js').read_text(encoding='utf-8')
-    return sorted(set(re.findall(r"'([^']+)'", source)), key=len, reverse=True)
+    return sorted({t for t in re.findall(r"'([^']+)'", source) if '/' not in t and '.' not in t}, key=len, reverse=True)
+
+
+def bible_names():
+    source = (ROOT/'public/bible-names.js').read_text(encoding='utf-8')
+    return sorted(json.loads(re.search(r'BIBLE_NAMES = (\[.*\]);', source).group(1)), key=len, reverse=True)
+
+
+def category_spans(reference, church, names):
+    """Church-term spans, and name spans that do not overlap a church term (約翰 inside 約翰福音)."""
+    church_spans = term_spans(reference, church)
+    taken = set(k for s, e, _ in church_spans for k in range(s, e))
+    name_spans = [span for span in term_spans(reference, names) if not taken & set(range(span[0], span[1]))]
+    return dict(church=church_spans, names=name_spans)
 
 
 def term_spans(reference, terms):
@@ -93,7 +107,10 @@ def score(reference, hypothesis, spans):
             for k in range(i1, i2):
                 ok[k] = True
     distance = Levenshtein.distance(reference, hypothesis)
-    correct = sum(all(ok[s:e]) for s, e, _ in spans)
+    if isinstance(spans, list):
+        spans = dict(church=spans, names=[])
+    correct = sum(all(ok[s:e]) for s, e, _ in spans['church'])
+    names_correct = sum(all(ok[s:e]) for s, e, _ in spans['names'])
     kinds = {'replace': 0, 'delete': 0, 'insert': 0}
     for op in Levenshtein.editops(reference, hypothesis):
         kinds[op.tag] += 1
@@ -105,12 +122,13 @@ def score(reference, hypothesis, spans):
                 substitutions=kinds['replace'], deletions=kinds['delete'], insertions=kinds['insert'],
                 long_deletion_runs=len(long_runs), long_deletion_chars=sum(long_runs),
                 reference_chars=len(reference), hypothesis_chars=len(hypothesis),
-                term_occurrences=len(spans), terms_correct=correct,
-                term_accuracy=round(correct/len(spans), 4) if spans else None), ok
+                term_occurrences=len(spans['church']), terms_correct=correct,
+                term_accuracy=round(correct/len(spans['church']), 4) if spans['church'] else None,
+                name_occurrences=len(spans['names']), names_correct=names_correct), ok
 
 
-def corrections(segments, glossary=None):
-    payload = json.dumps(dict(segments=segments, **({'glossary': glossary} if glossary is not None else {})))
+def corrections(segments, glossary=None, term_set='all'):
+    payload = json.dumps(dict(segments=segments, term_set=term_set, **({'glossary': glossary} if glossary is not None else {})))
     # NODE_BINARY lets Colab use a pinned Node from the nodejs-wheel-binaries package.
     result = subprocess.run([os.environ.get('NODE_BINARY', 'node'), str(ROOT/'scripts/apply-corrections.mjs')], input=payload, text=True,
                             capture_output=True, check=True)
@@ -119,7 +137,10 @@ def corrections(segments, glossary=None):
 
 def score_variants(name, segments, reference_variants, spans_by_variant, converter):
     out = corrections(segments)
-    texts = {'raw': ''.join(segments), 'glossary': ''.join(out['glossary']), 'phonetic': ''.join(out['phonetic'])}
+    core = corrections(segments, term_set='core')
+    # Chain: raw → glossary → same-sound (books + church terms) → same-sound (+ Bible names).
+    texts = {'raw': ''.join(segments), 'glossary': ''.join(out['glossary']),
+             'phonetic_core': ''.join(core['phonetic']), 'phonetic': ''.join(out['phonetic'])}
     result = dict(condition=name, segments=len(segments),
                   phonetic_changes=sum(len(c) for c in out['changes']), variants={})
     for ref_name, reference in reference_variants.items():
@@ -156,6 +177,14 @@ def decode_audio(path):
 
 
 RATE = 16000
+
+
+def condition_name(condition):
+    chunked = re.fullmatch(r'(fixed|vad)(\d+)', condition)
+    if chunked:
+        return f'whisper_live_{chunked.group(1)}_{chunked.group(2)}s'
+    return {'full': 'whisper_no_prompt', 'full_prompt': 'whisper_traditional_prompt'}.get(condition, condition)
+
 
 
 def vad_chunks(regions, total, max_samples):
@@ -231,6 +260,7 @@ def main():
     parser.add_argument('--model-label', default='whisper-large-v3-turbo')
     parser.add_argument('--device', default='auto', choices=['auto', 'cuda', 'cpu'])
     parser.add_argument('--only', help='Comma-separated pair ids (e.g. 01) to evaluate')
+    parser.add_argument('--reuse', help='Earlier run folder: reuse its recognizer outputs and only re-score')
     parser.add_argument('--conditions', default='full,fixed15,vad15',
                         help='full (whole file), full_prompt (+Traditional prompt), fixed<N> / vad<N> (N-second live chunks)')
     args = parser.parse_args()
@@ -243,7 +273,7 @@ def main():
     if not pairs:
         raise SystemExit('No NN.mp3 + NN.txt pairs found')
     model = None
-    if args.model_dir:
+    if args.model_dir and not args.reuse:
         from faster_whisper import WhisperModel
         import ctranslate2
         device = args.device if args.device != 'auto' else ('cuda' if ctranslate2.get_cuda_device_count() else 'cpu')
@@ -257,7 +287,7 @@ def main():
                              '若是缺少 libcublas／libcudnn：請安裝 nvidia-cublas-cu12、nvidia-cudnn-cu12 並設定 LD_LIBRARY_PATH'
                              '（Colab 筆記本第 3 格會自動處理）。') from error
         print(f'模型 {args.model_label}，裝置 {device}', flush=True)
-    terms = church_terms()
+    terms, names = church_terms(), bible_names()
     report = dict(created_at=datetime.now(timezone.utc).isoformat(timespec='seconds'), sealed_test=True,
                   model=args.model_label, model_bin_sha256=sha256_file(Path(args.model_dir)/'model.bin') if args.model_dir else None,
                   normalizer='NFC + OpenCC s2tw (hypothesis) + keep CJK/Latin/digits, lowercase',
@@ -267,14 +297,25 @@ def main():
     for pair in pairs:
         reference_text = clean_reference((meet/f'{pair}.txt').read_text(encoding='utf-8-sig'))
         references = {'full': normalize(reference_text), 'no_parentheses': normalize(without_parentheses(reference_text))}
-        spans = {name: term_spans(text, terms) for name, text in references.items()}
+        spans = {name: category_spans(text, terms, names) for name, text in references.items()}
         entry = dict(id=pair, audio_sha256=sha256_file(meet/f'{pair}.mp3'), reference_sha256=sha256_file(meet/f'{pair}.txt'),
-                     reference_chars=len(references['full']), term_occurrences=len(spans['full']), conditions=[])
-        print(f'[{pair}] 參考文字 {entry["reference_chars"]} 字、教會專名 {entry["term_occurrences"]} 處', flush=True)
-        if model:
+                     reference_chars=len(references['full']), term_occurrences=len(spans['full']['church']),
+                     name_occurrences=len(spans['full']['names']), conditions=[])
+        print(f'[{pair}] 參考文字 {entry["reference_chars"]} 字、教會專名 {entry["term_occurrences"]} 處、'
+              f'人名地名 {entry["name_occurrences"]} 處', flush=True)
+        if model or args.reuse:
             for condition in [c.strip() for c in args.conditions.split(',') if c.strip()]:
                 chunked = re.fullmatch(r'(fixed|vad)(\d+)', condition)
-                if condition in ('full', 'full_prompt'):
+                cached = Path(args.reuse)/f'{pair}.{condition_name(condition)}.json' if args.reuse else None
+                reused = bool(cached and cached.exists())
+                if reused:
+                    name = condition_name(condition)
+                    texts = json.loads(cached.read_text(encoding='utf-8'))['raw']
+                    timing = next((c for e in json.loads((Path(args.reuse)/'report.json').read_text(encoding='utf-8'))['pairs']
+                                   if e['id'] == pair for c in e['conditions'] if c['condition'] == name), {})
+                    timing = {k: v for k, v in timing.items() if k not in ('variants', 'condition', 'segments', 'phonetic_changes', 'raw_simplified_ratio')}
+                    prompt = timing.pop('prompt', None)
+                elif condition in ('full', 'full_prompt'):
                     prompt = NEUTRAL_PROMPT if condition == 'full_prompt' else None
                     name = 'whisper_traditional_prompt' if prompt else 'whisper_no_prompt'
                     texts, timing = transcribe(model, meet/f'{pair}.mp3', prompt)
@@ -286,6 +327,8 @@ def main():
                     raise SystemExit(f'Unknown condition: {condition}')
                 result, out = score_variants(name, texts, references, spans, converter)
                 result.update(timing, prompt=prompt)
+                if reused:
+                    result['reused_from'] = str(args.reuse)
                 entry['conditions'].append(result)
                 (output/f'{pair}.{name}.json').write_text(json.dumps(dict(raw=texts, **out), ensure_ascii=False, indent=1), encoding='utf-8')
                 delay = f'，字幕延遲中位數 {timing["caption_delay_seconds_median"]} 秒、P95 {timing["caption_delay_seconds_p95"]} 秒' if 'chunks' in timing else ''
@@ -300,14 +343,29 @@ def main():
             print('  chrome_export: 完成', flush=True)
         report['pairs'].append(entry)
     (output/'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
-    rows = ['| 測試 | 條件 | 版本 | CER | 專名正確 | 修好字數 | 改壞字數 |', '| --- | --- | --- | --- | --- | --- | --- |']
+    rows = ['| 測試 | 條件 | 版本 | CER | 專名正確 | 人名地名正確 | 修好字數 | 改壞字數 |', '| --- | --- | --- | --- | --- | --- | --- | --- |']
     for entry in report['pairs']:
         for cond in entry['conditions']:
             for key, m in cond['variants'].items():
                 if key.startswith('full/'):
                     acc = f"{m['terms_correct']}/{m['term_occurrences']}" if m['term_occurrences'] else '—'
-                    rows.append(f"| {entry['id']} | {cond['condition']} | {key.split('/')[1]} | {m['cer']:.2%} | {acc} | "
+                    names_acc = f"{m['names_correct']}/{m['name_occurrences']}" if m['name_occurrences'] else '—'
+                    rows.append(f"| {entry['id']} | {cond['condition']} | {key.split('/')[1]} | {m['cer']:.2%} | {acc} | {names_acc} | "
                                 f"{m.get('chars_fixed_vs_previous', '—')} | {m.get('chars_broken_vs_previous', '—')} |")
+    totals = {}
+    for entry in report['pairs']:
+        for cond in entry['conditions']:
+            for key, m in cond['variants'].items():
+                if key.startswith('full/'):
+                    t = totals.setdefault((cond['condition'], key.split('/')[1]), dict(e=0, r=0, tc=0, to=0, nc=0, no=0, f=0, b=0))
+                    t['e'] += m['edit_distance']; t['r'] += m['reference_chars']; t['tc'] += m['terms_correct']
+                    t['to'] += m['term_occurrences']; t['nc'] += m['names_correct']; t['no'] += m['name_occurrences']
+                    t['f'] += m.get('chars_fixed_vs_previous', 0); t['b'] += m.get('chars_broken_vs_previous', 0)
+    rows += ['', f"合計（{len(report['pairs'])} 組）", '', '| 條件 | 版本 | CER | 專名正確 | 人名地名正確 | 修好字數 | 改壞字數 |',
+             '| --- | --- | --- | --- | --- | --- | --- |']
+    for (condition, variant), t in totals.items():
+        rows.append(f"| {condition} | {variant} | {t['e']/t['r']:.2%} | {t['tc']}/{t['to']} | {t['nc']}/{t['no']} | "
+                    f"{t['f'] if variant != 'raw' else '—'} | {t['b'] if variant != 'raw' else '—'} |")
     rows += ['', '錯誤分類（原始辨識，對照完整參考文字）', '',
              '| 測試 | 條件 | 替換 | 漏字 | 多字 | 長段漏字（≥20字） | 字幕延遲 中位數／P95 |', '| --- | --- | --- | --- | --- | --- | --- |']
     for entry in report['pairs']:

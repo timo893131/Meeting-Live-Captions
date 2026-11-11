@@ -1,11 +1,11 @@
 // Same-sound church-term correction for recognized captions (runs in the browser; no server, no model).
 // A window of the caption is replaced by a term only when every heard character's most common toned pinyin
-// matches the term's reading
+// matches the term's reading (terms of 3+ chars allow one char that differs only in tone)
 // (e.g. 以服所書 → 以弗所書, 生命毒精 → 生命讀經, 詔會 → 召會). Exact occurrences of any term are protected,
 // longer terms win, and replaced text is never processed again.
 
-import {DEFAULT_TERMS} from './church-terms.js';
-export {DEFAULT_TERMS};
+import {DEFAULT_TERMS, CORE_DEFAULT_TERMS, BIBLE_NAMES} from './church-terms.js';
+export {DEFAULT_TERMS, CORE_DEFAULT_TERMS, BIBLE_NAMES};
 
 const MIN_LENGTH = 2;
 let readings = null;
@@ -45,24 +45,39 @@ export function phoneticCorrect(text, terms = DEFAULT_TERMS) {
   const list = [...new Set(terms)].map(term => Array.from(term)).filter(term => term.length >= MIN_LENGTH)
     .sort((a, b) => b.length - a.length);
   const locked = new Array(chars.length).fill(false);
-  // Protect exact occurrences first so a correct term is never rewritten into another term.
-  for (const term of list) {
+  const lockExact = term => {
     for (let i = 0; i + term.length <= chars.length; i++) {
       if (term.every((c, k) => chars[i + k] === c)) for (let k = 0; k < term.length; k++) locked[i + k] = true;
     }
-  }
+  };
+  // Longest terms first. Before each length, lock exact occurrences of the terms of that length, so a correct
+  // term is never rewritten into another term of the same or shorter length, while a longer same-sound term may
+  // still cover a shorter exact one (約翰三書 → 約翰參書 although 約翰 is itself a term).
   const changes = [], common = readings.common;
+  let lockedLength = Infinity;
   for (const term of list) {
+    if (term.length < lockedLength) {
+      lockedLength = term.length;
+      for (const other of list) if (other.length === lockedLength) lockExact(other);
+    }
     const accepted = termReadings(term);
     if (!accepted) continue;
     for (let i = 0; i + term.length <= chars.length; i++) {
       let differs = false, ok = true;
+      let toneSlips = 0;
       for (let k = 0; k < term.length; k++) {
-        const c = chars[i + k];
-        if (locked[i + k] || (c !== term[k] && !accepted[k].has(readings.primary.get(c)))) { ok = false; break; }
+        const c = chars[i + k], heard = readings.primary.get(c);
+        if (locked[i + k]) { ok = false; break; }
+        if (c !== term[k] && !accepted[k].has(heard)) {
+          // Terms of 3+ chars tolerate one char with the right syllable but another tone (拿厄米 → 拿俄米).
+          if (term.length >= 3 && toneSlips === 0 && heard && [...accepted[k]].some(s => s.slice(0, -1) === heard.slice(0, -1))) toneSlips++;
+          else { ok = false; break; }
+        }
         if (c !== term[k]) differs = true;
       }
       if (!ok || !differs) continue;
+      // A tone-slip match must not swallow an everyday word (是「實際」 is not 士師記).
+      if (toneSlips && chars.slice(i, i + term.length).some((c, k, w) => k + 1 < w.length && common.has(c + w[k + 1]))) continue;
       const from = chars.slice(i, i + term.length).join(''), end = i + term.length;
       // Refuse when the heard text is itself a common word (戒嚴、呻吟), or when it forms a common word with
       // the neighbouring char that the correction would break (約伯「繼續」、利未「祭司」).

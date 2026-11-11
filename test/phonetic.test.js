@@ -19,7 +19,10 @@ test('same-sound misrecognitions of church terms are corrected', () => {
     '照會生活': '召會生活',
     '讀真言第三章': '讀箴言第三章',
     '神的腈綸': '神的經綸',
-    '弟兄們伸延': '弟兄們申言'
+    '弟兄們伸延': '弟兄們申言',
+    '拿厄米和波阿斯': '拿俄米和波阿斯',
+    '尼布加尼撒王': '尼布甲尼撒王',
+    '摩鴉鄉間': '摩押鄉間'
   };
   for (const [heard, expected] of Object.entries(cases)) assert.equal(phoneticCorrect(heard).text, expected, heard);
   assert.deepEqual(phoneticCorrect('生命毒精').changes, [{from: '生命毒精', to: '生命讀經', index: 0}]);
@@ -27,6 +30,9 @@ test('same-sound misrecognitions of church terms are corrected', () => {
 
 test('correct text and ordinary words are left alone', () => {
   loadPinyin(data);
+  assert.equal(phoneticCorrect('尼利米勒').text, '尼利米勒');  // different initial (ni/yi): not a same-sound error
+  assert.equal(phoneticCorrect('馬丁路德').text, '馬丁路德');  // Life-Study uses 路德 for Luther; 路得 is not a target
+  assert.equal(phoneticCorrect('撒迦利亞說').text, '撒迦利亞說');  // two different persons share this sound
   for (const text of ['以弗所書第一章', '台灣戒嚴時期', '約伯繼續說', '利未祭司', '這是規條和律法', '眾生平等',
     '肯贖就贖出來', '交通號誌', '他在禱告', '今天天氣很好']) {
     assert.equal(phoneticCorrect(text).text, text, text);

@@ -12,5 +12,9 @@ export const BIBLE_BOOKS = ['創世記', '出埃及記', '利未記', '民數記
 export const CORE_TERMS = ['耶穌基督', '保羅', '亞伯拉罕', '耶路撒冷', '加利利', '哥林多', '經綸', '那靈', 
   '配搭', '擘餅', '禱告', '生命讀經', '恢復本', '召會', '召會生活', '介言', '申言', '申言者',
   '以馬內利', '哈利路亞', '新耶路撒冷', '三一神', '基督的身體'];
-export const DEFAULT_TERMS = [...new Set([...BIBLE_BOOKS, ...CORE_TERMS])];
+import {BIBLE_NAMES} from './bible-names.js';
+export {BIBLE_NAMES};
+// Books + core church terms (the set evaluated first); DEFAULT_TERMS also includes Bible person/place names.
+export const CORE_DEFAULT_TERMS = [...new Set([...BIBLE_BOOKS, ...CORE_TERMS])];
+export const DEFAULT_TERMS = [...new Set([...CORE_DEFAULT_TERMS, ...BIBLE_NAMES])];
 

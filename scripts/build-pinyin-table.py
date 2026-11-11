@@ -29,7 +29,7 @@ from pypinyin import Style, lazy_pinyin, pinyin
 OVERRIDES = {'約翰參書': 'yue1 han4 san1 shu1', '擘餅': 'bo4 bing3'}
 # Dictionary words that sound like a term but, in church meetings, are misrecognitions of it: always corrected.
 # 照會/真言/腈綸/伸延 confirmed by the project owner (2026-11-10); 戒嚴 stays protected.
-MISSPELLINGS = {'創世紀', '照會', '真言', '腈綸', '伸延'}
+MISSPELLINGS = {'創世紀', '照會', '真言', '腈綸', '伸延'}  # not 路德: Life-Study uses it for Luther
 PROTECT_MIN_FREQ = 20
 BOUNDARY_MIN_FREQ = 20
 
@@ -54,7 +54,8 @@ def main():
             groups[syllable].append(char); primary[char] = syllable
 
     source = (root/'public/church-terms.js').read_text(encoding='utf-8')
-    terms = sorted(set(re.findall(r"'([^']+)'", source)))
+    names = json.loads(re.search(r'BIBLE_NAMES = (\[.*\]);', (root/'public/bible-names.js').read_text(encoding='utf-8')).group(1))
+    terms = sorted(set(re.findall(r"'([^']+)'", source)) - {'./bible-names.js'} | set(names))
     readings = {}
     for term in terms:
         phrase = OVERRIDES.get(term, ' '.join(lazy_pinyin(t2s.convert(term), style=Style.TONE3,
