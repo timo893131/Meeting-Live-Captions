@@ -130,6 +130,10 @@ test('audio-file test keeps unfinished phrases across sessions and retries netwo
   }
   await expect(page.locator('#stop')).toBeEnabled();
   await expect(page.locator('#message')).toBeHidden();
+  const beforeFinal = await page.evaluate(() => window.__speechCount);
+  await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('確定的一句'); });  // stop() → onend
+  await page.waitForFunction(c => window.__speechCount > c, beforeFinal, {timeout: 5000});        // restarted right away
+  await expect(page.locator('#captions')).toContainText('確定的一句');
   await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('一段很長的辨識中文字還沒確定', false); window.__speech.emit('新', false); });
   await page.locator('#stop').click();
   await expect(page.locator('#fileProgress')).toBeHidden();
@@ -140,7 +144,7 @@ test('audio-file test keeps unfinished phrases across sessions and retries netwo
   const entries = (await import('node:fs')).readFileSync(path, 'utf8').trim().split('\n').map(line => JSON.parse(line));
   assert.equal(entries[0].type, 'file');
   const types = entries.map(entry => entry.type);
-  for (const type of ['start', 'result', 'end', 'error', 'interim-dropped']) assert.ok(types.includes(type), type);
+  for (const type of ['start', 'result', 'end', 'error', 'interim-dropped', 'restart-after-final']) assert.ok(types.includes(type), type);
 });
 
 test('audio-file test feeds the file to recognition as a track without the speakers and finishes by itself', async t => {
@@ -151,8 +155,11 @@ test('audio-file test feeds the file to recognition as a track without the speak
   await page.waitForFunction(() => window.__startTrack);
   assert.deepEqual(await page.evaluate(() => window.__startTrack), {kind: 'audio', readyState: 'live'});
   await expect(page.locator('#fileProgress')).toBeVisible();
+  const count = await page.evaluate(() => window.__speechCount);
   await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('音檔測試字幕'); });
   await expect(page.locator('#captions')).toContainText('音檔測試字幕');
+  await page.waitForFunction(c => window.__speechCount > c, count);  // restarted after the final result
+  await page.evaluate(() => window.__speech.confirmStart());         // Chrome starts the new session; audio resumes
   await expect(page.locator('#message')).toContainText('音檔辨識完成', {timeout: 10000});
   await expect(page.locator('#stop')).toBeDisabled();
   await expect(page.locator('#export')).toBeEnabled();
