@@ -1,9 +1,48 @@
 import { DurableObject } from 'cloudflare:workers';
 import QRCode from 'qrcode';
+import {Converter} from 'opencc-js/cn2t';
 
 const LIFETIME=12*60*60*1000;
+// Server-side speech recognition: Whisper large-v3-turbo on Workers AI (evaluated on the MEET test set).
+const SPEECH_MODEL='@cf/openai/whisper-large-v3-turbo';
+const MAX_WAV_BYTES=44+16000*2*12;          // one chunk: at most 12 s of 16 kHz mono 16-bit audio
+const DAILY_SECONDS_PER_IP=4*60*60;          // the free plan allows about 214 audio minutes a day in total
+const toTraditional=Converter({from:'cn',to:'tw'});
+// Whisper sometimes "hears" video-subtitle credits in noise; such a line is never sermon text.
+const CREDITS=/(字幕|字幕組|字幕由).{0,12}(提供|製作)|請不吝|點贊|訂閱|轉發|打賞|Amara|明鏡|謝謝(觀看|收看|大家收看)/;
 const randomHex=bytes=>Array.from(crypto.getRandomValues(new Uint8Array(bytes)),b=>b.toString(16).padStart(2,'0')).join('');
 const json=(body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'}});
+function base64(bytes) {
+  let text='';for(let i=0;i<bytes.length;i+=32768)text+=String.fromCharCode(...bytes.subarray(i,i+32768));
+  return btoa(text);
+}
+export function cleanTranscript(result,language) {
+  const parts=Array.isArray(result?.segments)&&result.segments.length
+    ?result.segments.filter(s=>!(s.no_speech_prob>0.8)).map(s=>s.text||'')
+    :[result?.text||''];
+  const text=parts.map(part=>part.trim()).filter(part=>part&&!CREDITS.test(part)).join(language==='zh'?'':' ').trim();
+  return language==='zh'?toTraditional(text):text;
+}
+async function transcribe(request,env) {
+  if(!env.AI)return json({error:'此網站未啟用 Whisper 辨識。',code:'unavailable'},501);
+  const bytes=new Uint8Array(await request.arrayBuffer());
+  const riff=String.fromCharCode(...bytes.subarray(0,4)),wave=String.fromCharCode(...bytes.subarray(8,12));
+  if(bytes.length<=44||bytes.length>MAX_WAV_BYTES||riff!=='RIFF'||wave!=='WAVE')return json({error:'音訊格式不正確。'},400);
+  const seconds=(bytes.length-44)/32000;
+  const gate=env.SPEECH_LIMIT.get(env.SPEECH_LIMIT.idFromName('speech-limit'));
+  const permitted=await gate.fetch(new Request('https://internal/check',{headers:{'client-ip':request.headers.get('CF-Connecting-IP')||'local','seconds':String(seconds)}}));
+  if(!permitted.ok)return json({error:'今天的辨識用量已達上限。',code:'limit'},429);
+  const language=new URL(request.url).searchParams.get('lang')==='en'?'en':'zh';
+  try {
+    const result=await env.AI.run(SPEECH_MODEL,{audio:base64(bytes),task:'transcribe',language,vad_filter:false,condition_on_previous_text:false,beam_size:5});
+    return json({text:cleanTranscript(result,language)});
+  } catch(error) {
+    const detail=String(error?.message||error);
+    if(/3036|daily free allocation|neurons/i.test(detail))return json({error:'今天的 Workers AI 免費額度已用完。',code:'quota'},429);
+    if(/3040|capacity/i.test(detail))return json({error:'辨識服務忙碌中。',code:'busy'},503);
+    return json({error:'辨識服務暫時無法使用。',code:'error'},502);
+  }
+}
 const hex=buffer=>Array.from(new Uint8Array(buffer),b=>b.toString(16).padStart(2,'0')).join('');
 async function passwordHash(password,salt) {
   const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveBits']);
@@ -17,7 +56,8 @@ function equal(a,b) {
 export default {
   async fetch(request,env) {
     const url=new URL(request.url);
-    if(url.pathname==='/api/health')return json({ok:true,runtime:'cloudflare'});
+    if(url.pathname==='/api/health')return json({ok:true,runtime:'cloudflare',transcribe:!!env.AI});
+    if(url.pathname==='/api/transcribe'&&request.method==='POST')return transcribe(request,env);
     if(url.pathname==='/api/rooms' && request.method==='POST') {
       const gate=env.CREATE_LIMIT.get(env.CREATE_LIMIT.idFromName('create-limit'));
       const permitted=await gate.fetch(new Request('https://internal/check',{headers:{'client-ip':request.headers.get('CF-Connecting-IP')||'local'}}));
@@ -41,6 +81,27 @@ export default {
     return env.ASSETS.fetch(request);
   }
 };
+
+export class SpeechLimit extends DurableObject {
+  async fetch(request) {
+    // One global object counts audio seconds per IP per UTC day (Workers AI's free allocation is daily too).
+    const ip=hex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(request.headers.get('client-ip')||'local')));
+    const seconds=Math.max(0,Number(request.headers.get('seconds'))||0);
+    let allowed=false;
+    await this.ctx.blockConcurrencyWhile(async()=>{
+      const now=Date.now(),day=new Date(now).toISOString().slice(0,10);
+      let usage=await this.ctx.storage.get('usage');
+      if(!usage||usage.day!==day)usage={day,ips:{}};
+      if(!usage.ips[ip]&&Object.keys(usage.ips).length>=2000)return;
+      const item=usage.ips[ip]||{seconds:0,count:0,until:0};
+      if(item.until<now){item.count=0;item.until=now+60000;}
+      allowed=++item.count<=40&&item.seconds+seconds<=DAILY_SECONDS_PER_IP;
+      if(allowed)item.seconds+=seconds;
+      usage.ips[ip]=item;await this.ctx.storage.put('usage',usage);
+    });
+    return allowed?new Response('ok'):new Response('limited',{status:429});
+  }
+}
 
 export class CreateLimit extends DurableObject {
   async fetch(request) {

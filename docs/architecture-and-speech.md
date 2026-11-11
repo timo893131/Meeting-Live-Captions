@@ -4,17 +4,32 @@
 
 ```mermaid
 flowchart LR
-  Mic[房主或個人的麥克風] --> ASR[瀏覽器 SpeechRecognition 語音辨識]
-  ASR --> Terms[瀏覽器內的教會詞彙校正<br/>固定替換＋同音專名校正]
+  Mic[房主或個人的麥克風] --> Chunk[瀏覽器在停頓處切段<br/>每段約 5–9 秒]
+  Chunk --> Whisper[Cloudflare Workers AI<br/>Whisper large-v3-turbo]
+  Mic --> Preview[Chrome SpeechRecognition<br/>即時灰字預覽／備援]
+  Whisper --> Terms[瀏覽器內的教會詞彙校正<br/>固定替換＋同音專名校正]
   Terms --> Personal[個人字幕畫面]
   Terms --> WS[WebSocket 傳送文字]
   WS --> Room[Node 房間或 Cloudflare Durable Object]
   Room --> Viewers[房間觀看者的即時字幕]
 ```
 
-網頁呼叫 `SpeechRecognition` / `webkitSpeechRecognition`，語言 `zh-TW`，開啟 continuous 和 interimResults。暫定字幕可以先顯示，之後由確定結果取代；瀏覽器結束一段辨識時，收音狀態允許自動重啟。
+**預設（Cloudflare 部署）：Whisper。** `public/speech-chunker.js` 用 AudioWorklet 取得麥克風、降到 16 kHz，
+以能量偵測在停頓處切段（滿 5 秒後遇到 0.3 秒停頓就切；停頓 1.5 秒也切；最長 9 秒，沒有停頓時切在最後 3 秒最安靜處；
+只有雜音的段落不送）。每段以 WAV 送到 Worker 的 `POST /api/transcribe`，Worker 用 `env.AI`（Workers AI
+`@cf/openai/whisper-large-v3-turbo`，設定與 MEET 評估的 `cfvad10` 相同）辨識、以 OpenCC 轉繁體、濾掉
+「字幕由…提供」這類幻覺字句，回傳文字；網頁依段落順序顯示並套用教會詞彙校正。MEET 結果：錯字率約 14.5%、
+專名 77/116，Chrome 在同一錄音約 32%（見 meet-evaluation.md）。延遲 ≈ 段長＋約 2 秒。
 
-實際語音模型由瀏覽器／供應商決定，專案不知道其版本，也沒有自行執行 Whisper。音訊可能送至瀏覽器供應商服務；本專案的 Node／Cloudflare 後端只收到文字，不接收或訓練音訊。
+用 Chrome 時，`SpeechRecognition` 同時執行但只當灰字預覽（確定結果不進字幕），Whisper 的結果出來後取代。
+Whisper 某段失敗時，那段預覽文字改為字幕，不遺失；連續 3 段失敗、免費額度用完（Workers AI 3036）或達到
+每日上限時，自動改用 Chrome 辨識並提示。設定可改選「Chrome 即時辨識」。音檔測試功能只測 Chrome。
+
+用量：免費方案每天 10,000 neurons（約 214 分鐘音訊，UTC 0 點重置）；`SpeechLimit` Durable Object 限制每個 IP
+每天 4 小時音訊、每分鐘 40 段，避免他人耗盡額度。Worker 不保存音訊；Node 版沒有 Workers AI，只提供 Chrome 辨識。
+
+**Chrome 辨識**：網頁呼叫 `SpeechRecognition` / `webkitSpeechRecognition`，語言 `zh-TW`，開啟 continuous 和
+interimResults；瀏覽器結束一段辨識時自動重啟。實際模型由瀏覽器供應商決定，音訊可能送至其服務。
 
 個人模式在自己的頁面處理字幕；廣播模式由房主校正後傳送文字，觀看者只接收字幕，因此觀眾不需要各自執行辨識模型。房主憑證允許廣播及關閉房間，房間密碼或邀請憑證允許觀看。QR Code 帶有觀看憑證。
 

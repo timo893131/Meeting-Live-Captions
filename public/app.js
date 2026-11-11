@@ -1,5 +1,6 @@
 import {defaultGlossary, parseGlossary, correctText} from '/glossary.js';
 import {DEFAULT_TERMS, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '/phonetic.js';
+import {startMicrophoneChunks, encodeWav, createOrderedQueue} from '/speech-chunker.js';
 
 const $ = id => document.getElementById(id);
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -10,6 +11,10 @@ let entries = [], following = true, unread = 0, busy = false, terminal = false;
 let generation = 0, retryCount = 0, reconnectTimer = null, handshakeTimer = null;
 let recognition = null, wantsAudio = false, speechGeneration = 0, restartTimer = null, shortEnds = 0;
 let micState = 'idle', wakeLock = null, wakePending = false;
+// Whisper on Cloudflare Workers AI (server-side): microphone chunks cut at pauses. When Chrome's recognizer is
+// available it runs alongside as an instant grey preview; it also takes over if Whisper is unavailable.
+let serverSpeech = false, whisper = null;
+const usingWhisper = () => serverSpeech && $('engine').value === 'whisper' && !fileSource;
 // Audio-file test: the file plays into a Web Audio stream (not the speakers) whose track is recognized.
 let fileSource = null;
 const FILE_RETRIES = 8;
@@ -60,7 +65,8 @@ function updateUI() {
   $('start').hidden = $('stop').hidden = mode === 'viewer';
   $('micStatus').hidden = mode === 'viewer';
   $('fileTest').hidden = mode !== 'personal';
-  $('start').disabled = busy || wantsAudio || !SpeechRecognition || (mode === 'host' && roomState !== 'ready');
+  $('start').disabled = busy || wantsAudio || (!SpeechRecognition && !serverSpeech) || (mode === 'host' && roomState !== 'ready');
+  $('engine').disabled = wantsAudio || !serverSpeech;
   $('stop').disabled = !wantsAudio;
   $('language').disabled = wantsAudio;
   $('joinButton').disabled = busy || roomState === 'connecting';
@@ -76,7 +82,7 @@ function updateUI() {
   badge('status', ...(states[roomState] || states.none));
   const micStates = {
     idle: ['尚未收音', 'neutral'], starting: ['正在啟動麥克風', 'warning'],
-    active: ['收音中', 'active'], restarting: ['正在恢復收音', 'warning'], error: ['收音已停止', 'error']
+    active: [whisper ? '收音中・Whisper' : wantsAudio && serverSpeech ? '收音中・Chrome' : '收音中', 'active'], restarting: ['正在恢復收音', 'warning'], error: ['收音已停止', 'error']
   };
   badge('micStatus', ...micStates[micState]);
   void syncWakeLock();
@@ -187,6 +193,11 @@ function sendCaption(text, final) {
 }
 function stopAudio({discard = false, error = false} = {}) {
   wantsAudio = false;
+  if (whisper) {  // the last chunk is still recognized and shown, unless the captions are being discarded
+    const state = whisper; whisper = null;
+    if (discard) state.discarded = true;
+    state.capture?.stop();
+  }
   if (fileSource) {
     const source = fileSource; fileSource = null;
     clearInterval(source.watchdog);
@@ -247,9 +258,12 @@ function beginRecognition(run) {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i], text = correctCaption(result[0].transcript, glossary, terms);
       if (result.isFinal) {
-        if (!completedResults.has(i)) { completedResults.add(i); sendCaption(text, true); }
+        if (completedResults.has(i)) continue;
+        completedResults.add(i);
+        if (whisper) whisper.preview += text; else sendCaption(text, true);
       } else if (wantsAudio) interim += text;
     }
+    if (whisper) interim = whisper.preview + interim;
     if (fileSource) {
       const finals = [];
       for (let i = event.resultIndex; i < event.results.length; i++) if (event.results[i].isFinal) finals.push(event.results[i][0].transcript.length);
@@ -272,6 +286,10 @@ function beginRecognition(run) {
   rec.onerror = event => {
     if (fileSource && current()) { fileStats.errors++; diag('error', {error: event.error}); }
     if (!current() || !wantsAudio || event.error === 'no-speech') return;
+    if (whisper) {  // only the preview is affected; Whisper keeps captioning
+      if (['not-allowed', 'service-not-allowed', 'language-not-supported', 'audio-capture'].includes(event.error)) whisper.noPreview = true;
+      return;
+    }
     // Audio-file test: transient service errors are retried (with back-off in onend) instead of stopping.
     if (fileSource && ['network', 'aborted'].includes(event.error)) { fileSource.failures++; return; }
     stopAudio({discard: true, error: true});
@@ -301,7 +319,9 @@ function beginRecognition(run) {
       restartTimer = setTimeout(() => beginRecognition(run), source.failures ? Math.min(8000, 500 * 2 ** source.failures) : 100);
       return;
     }
+    if (whisper?.noPreview) return;
     shortEnds = Date.now() - startedAt < 1000 ? shortEnds + 1 : 0;
+    if (shortEnds >= 5 && whisper) { whisper.noPreview = true; return; }
     if (shortEnds >= 5) {
       stopAudio({discard: true, error: true});
       message('語音服務連續中斷，已停止自動重試。請檢查網路與瀏覽器後重新開始收音。');
@@ -312,18 +332,76 @@ function beginRecognition(run) {
   };
   const usingFile = Boolean(fileSource);
   try { usingFile ? rec.start(fileSource.track) : rec.start(); } catch {
+    if (whisper) { whisper.noPreview = true; recognition = null; return; }
     stopAudio({discard: true, error: true});
     message(usingFile ? '此 Chrome 版本無法辨識音檔，請更新到桌面版 Chrome 133 以上。' : '無法啟動語音辨識，請確認麥克風權限後再試。');
   }
 }
+function deliverWhisper(state, item) {
+  if (state.discarded) return;
+  if (item.text !== undefined) {
+    state.failures = 0;
+    if (item.text) {
+      const glossary = parseGlossary($('glossary').value), terms = [...DEFAULT_TERMS, ...parseTerms($('glossary').value)];
+      sendCaption(correctCaption(item.text, glossary, terms), true);
+    }
+    state.preview = '';  // the preview of this stretch is replaced by the recognized caption
+    return;
+  }
+  if (state.preview) { sendCaption(state.preview, true); state.preview = ''; }  // keep what the preview heard
+  if (item.fatal || ++state.failures >= 3) fallbackToChrome(state, item.fatal);
+}
+function fallbackToChrome(state, code) {
+  if (whisper !== state) return;
+  whisper = null; state.capture?.stop();
+  const reason = {quota: '今天的 Whisper 免費額度已用完', limit: '這個網路今天的 Whisper 用量已達上限', unavailable: '此網站沒有 Whisper 辨識'}[code] || 'Whisper 辨識連續失敗';
+  if (SpeechRecognition && wantsAudio && !state.noPreview) {
+    message(`${reason}，已改用 Chrome 即時辨識繼續字幕。`, 'info'); updateUI();
+  } else {
+    stopAudio({error: true});
+    message(`${reason}，字幕已停止。請改用桌面版 Chrome（設定選「Chrome 即時辨識」），或稍後再試。`);
+  }
+}
+async function sendChunk(state, samples) {
+  const seq = state.queue.reserve(), language = $('language').value.startsWith('en') ? 'en' : 'zh';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const response = await fetch('/api/transcribe?lang=' + language, {method: 'POST', headers: {'Content-Type': 'audio/wav'},
+        body: encodeWav(samples), signal: controller.signal});
+      const body = await response.json().catch(() => ({}));
+      if (response.ok) return state.queue.settle(seq, {text: typeof body.text === 'string' ? body.text : ''});
+      if (['quota', 'limit', 'unavailable'].includes(body.code)) return state.queue.settle(seq, {fatal: body.code});
+    } catch {} finally { clearTimeout(timer); }
+    if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  state.queue.settle(seq, {failed: true});
+}
+async function startWhisper(run) {
+  const state = {failures: 0, preview: '', capture: null, discarded: false, noPreview: !SpeechRecognition};
+  state.queue = createOrderedQueue(item => deliverWhisper(state, item));
+  whisper = state;
+  let capture;
+  try { capture = await startMicrophoneChunks(chunk => { void sendChunk(state, chunk); }); }
+  catch (error) {
+    if (whisper !== state) return;
+    whisper = null; stopAudio({discard: true, error: true});
+    return message(error?.name === 'NotAllowedError' ? speechErrors['not-allowed'] : speechErrors['audio-capture']);
+  }
+  state.capture = capture;
+  if (whisper !== state || run !== speechGeneration) { capture.stop(); return; }  // stopped while starting
+  micState = 'active'; updateUI();
+  if (!state.noPreview) beginRecognition(run);
+}
 function startAudio() {
   if (wantsAudio || busy) return;
-  if (!SpeechRecognition) return message('此瀏覽器不支援收音辨識，請使用桌面版 Chrome；仍可加入房間看字幕。');
+  if (!SpeechRecognition && !usingWhisper()) return message('此瀏覽器不支援收音辨識，請使用桌面版 Chrome；仍可加入房間看字幕。');
   if (!window.isSecureContext) return message('麥克風需要 HTTPS，請使用安全的網站網址。');
   if (mode === 'host' && roomState !== 'ready') return message('房間尚未連線，請等待連線完成。');
   message(); wantsAudio = true; shortEnds = 0; micState = 'starting';
   const run = ++speechGeneration;
-  ensurePinyin(); updateUI(); beginRecognition(run);
+  ensurePinyin(); updateUI();
+  if (usingWhisper()) void startWhisper(run); else beginRecognition(run);
 }
 
 function disconnect() {
@@ -558,6 +636,7 @@ $('export').onclick = () => {
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = '聚會字幕.txt'; link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 };
+$('engine').onchange = () => { try { localStorage.setItem('speechEngine', $('engine').value); } catch {} updateUI(); };
 $('phonetic').onchange = () => {
   try { localStorage.setItem('phoneticCorrection', $('phonetic').checked ? 'on' : 'off'); } catch {}
   if (wantsAudio) ensurePinyin();
@@ -566,10 +645,17 @@ let savedGlossary;
 try {
   savedGlossary = localStorage.getItem('churchGlossary'); applyFontSize(localStorage.getItem('captionFontSize'));
   $('phonetic').checked = localStorage.getItem('phoneticCorrection') !== 'off';
+  if (localStorage.getItem('speechEngine') === 'chrome') $('engine').value = 'chrome';
 } catch {}
 $('glossary').value = savedGlossary ?? defaultGlossary.map(pair => pair.join('=')).join('\n');
 
+async function checkServerSpeech() {
+  try { serverSpeech = (await (await request('/api/health')).json()).transcribe === true; } catch { serverSpeech = false; }
+  $('engine').querySelector('[value=whisper]').disabled = !serverSpeech;
+  if (!serverSpeech) { $('engine').value = 'chrome'; $('engineHint').textContent = '此網站目前只提供 Chrome 即時辨識。'; }
+}
 async function initialize() {
+  await checkServerSpeech();
   const queryRoom = new URLSearchParams(location.search).get('room');
   const invite = new URLSearchParams(location.hash.slice(1)).get('invite');
   const saved = readSession();
@@ -592,6 +678,6 @@ async function initialize() {
   } else { clearSession(); }
   if (!entries.length) placeholder();
   updateUI();
-  if (!SpeechRecognition && mode !== 'viewer') message('此瀏覽器不支援收音辨識，請使用桌面版 Chrome；仍可加入房間看字幕。', 'info');
+  if (!SpeechRecognition && !serverSpeech && mode !== 'viewer') message('此瀏覽器不支援收音辨識，請使用桌面版 Chrome；仍可加入房間看字幕。', 'info');
 }
 void initialize();
