@@ -1,27 +1,17 @@
 import { DurableObject } from 'cloudflare:workers';
 import QRCode from 'qrcode';
-import {Converter} from 'opencc-js/cn2t';
+import {cleanTranscript} from './transcript.js';
 
 const LIFETIME=12*60*60*1000;
 // Server-side speech recognition: Whisper large-v3-turbo on Workers AI (evaluated on the MEET test set).
 const SPEECH_MODEL='@cf/openai/whisper-large-v3-turbo';
 const MAX_WAV_BYTES=44+16000*2*12;          // one chunk: at most 12 s of 16 kHz mono 16-bit audio
 const DAILY_SECONDS_PER_IP=4*60*60;          // the free plan allows about 214 audio minutes a day in total
-const toTraditional=Converter({from:'cn',to:'tw'});
-// Whisper sometimes "hears" video-subtitle credits in noise; such a line is never sermon text.
-const CREDITS=/(字幕|字幕組|字幕由).{0,12}(提供|製作)|請不吝|點贊|訂閱|轉發|打賞|Amara|明鏡|謝謝(觀看|收看|大家收看)/;
 const randomHex=bytes=>Array.from(crypto.getRandomValues(new Uint8Array(bytes)),b=>b.toString(16).padStart(2,'0')).join('');
 const json=(body,status=200)=>Response.json(body,{status,headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'}});
 function base64(bytes) {
   let text='';for(let i=0;i<bytes.length;i+=32768)text+=String.fromCharCode(...bytes.subarray(i,i+32768));
   return btoa(text);
-}
-export function cleanTranscript(result,language) {
-  const parts=Array.isArray(result?.segments)&&result.segments.length
-    ?result.segments.filter(s=>!(s.no_speech_prob>0.8)).map(s=>s.text||'')
-    :[result?.text||''];
-  const text=parts.map(part=>part.trim()).filter(part=>part&&!CREDITS.test(part)).join(language==='zh'?'':' ').trim();
-  return language==='zh'?toTraditional(text):text;
 }
 async function transcribe(request,env) {
   if(!env.AI)return json({error:'此網站未啟用 Whisper 辨識。',code:'unavailable'},501);
