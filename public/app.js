@@ -239,6 +239,12 @@ function beginRecognition(run) {
       diag(dropped ? 'interim-dropped' : 'result', {index: event.resultIndex, total: event.results.length, finals,
         interim: interim.length, before: fileSource.pending.length});
       fileSource.pending = interim; fileSource.failures = 0;
+      // Diagnostics showed Chrome goes deaf for ~30 s after each final result on an audio track, while a fresh
+      // session responds within 1–3 s: so end the session after every final and restart (audio waits meanwhile).
+      if (finals.length && !fileSource.restartAfterFinal) {
+        fileSource.restartAfterFinal = true; diag('restart-after-final');
+        try { rec.stop(); } catch {}
+      }
     }
     sendCaption(interim, false);
   };
@@ -259,14 +265,16 @@ function beginRecognition(run) {
       diag('end', {pending: source.pending.length});
       if (source.pending) { sendCaption(source.pending, true); source.pending = ''; }  // keep the unfinished phrase
       sendCaption('', false);
-      if (!audio.ended) { audio.pause(); audio.currentTime = Math.max(0, audio.currentTime - 1); }
+      // Rewind a little so a phrase cut by the restart is heard again; less after a planned restart.
+      if (!audio.ended) { audio.pause(); audio.currentTime = Math.max(0, audio.currentTime - (source.restartAfterFinal ? 0.3 : 1)); }
+      source.restartAfterFinal = false;
       if (source.failures >= FILE_RETRIES) {
         stopAudio({discard: true, error: true});
         message('語音服務連續中斷，音檔測試已停止。請確認網路後重新選擇音檔。');
         return;
       }
       micState = 'restarting'; updateUI();
-      restartTimer = setTimeout(() => beginRecognition(run), Math.min(8000, 500 * 2 ** source.failures));
+      restartTimer = setTimeout(() => beginRecognition(run), source.failures ? Math.min(8000, 500 * 2 ** source.failures) : 100);
       return;
     }
     shortEnds = Date.now() - startedAt < 1000 ? shortEnds + 1 : 0;
