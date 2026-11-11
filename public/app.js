@@ -12,6 +12,7 @@ let recognition = null, wantsAudio = false, speechGeneration = 0, restartTimer =
 let micState = 'idle', wakeLock = null, wakePending = false;
 // Audio-file test: the file plays into a Web Audio stream (not the speakers) whose track is recognized.
 let fileSource = null;
+const FILE_RETRIES = 8;
 
 function message(text = '', kind = 'error') {
   $('message').textContent = text;
@@ -203,7 +204,13 @@ function beginRecognition(run) {
   const startedAt = Date.now();
   const completedResults = new Set();
   const current = () => run === speechGeneration && recognition === rec;
-  rec.onstart = () => { if (current() && wantsAudio) { micState = 'active'; updateUI(); } };
+  rec.onstart = () => {
+    if (!current() || !wantsAudio) return;
+    micState = 'active'; updateUI();
+    // Audio-file test: the file only plays while a recognition session is running, so nothing is skipped
+    // while Chrome reconnects between sessions.
+    if (fileSource && !fileSource.audio.ended) fileSource.audio.play().catch(() => {});
+  };
   rec.onresult = event => {
     if (!current()) return;
     let interim = '';
@@ -215,10 +222,13 @@ function beginRecognition(run) {
         if (!completedResults.has(i)) { completedResults.add(i); sendCaption(text, true); }
       } else if (wantsAudio) interim += text;
     }
+    if (fileSource) { fileSource.pending = interim; fileSource.failures = 0; }
     sendCaption(interim, false);
   };
   rec.onerror = event => {
     if (!current() || !wantsAudio || event.error === 'no-speech') return;
+    // Audio-file test: transient service errors are retried (with back-off in onend) instead of stopping.
+    if (fileSource && ['network', 'aborted'].includes(event.error)) { fileSource.failures++; return; }
     stopAudio({discard: true, error: true});
     message(speechErrors[event.error] || '語音辨識已停止，請確認麥克風與網路，再按開始收音。');
   };
@@ -226,6 +236,20 @@ function beginRecognition(run) {
     if (!current()) return;
     recognition = null;
     if (!wantsAudio) return;
+    if (fileSource) {
+      const source = fileSource, audio = source.audio;
+      if (source.pending) { sendCaption(source.pending, true); source.pending = ''; }  // keep the unfinished phrase
+      sendCaption('', false);
+      if (!audio.ended) { audio.pause(); audio.currentTime = Math.max(0, audio.currentTime - 1); }
+      if (source.failures >= FILE_RETRIES) {
+        stopAudio({discard: true, error: true});
+        message('語音服務連續中斷，音檔測試已停止。請確認網路後重新選擇音檔。');
+        return;
+      }
+      micState = 'restarting'; updateUI();
+      restartTimer = setTimeout(() => beginRecognition(run), Math.min(8000, 500 * 2 ** source.failures));
+      return;
+    }
     shortEnds = Date.now() - startedAt < 1000 ? shortEnds + 1 : 0;
     if (shortEnds >= 5) {
       stopAudio({discard: true, error: true});
@@ -396,9 +420,11 @@ $('testAudio').onchange = async () => {
     // Give the recognizer a moment to return the last final result.
     setTimeout(() => { if (fileSource?.audio === audio) { stopAudio(); message('音檔辨識完成，可以按「下載字幕」。', 'success'); } }, 4000);
   };
-  try { await context.resume(); await audio.play(); }
+  // Check the file plays (and unlock playback while the file choice still counts as a user action), then wait:
+  // playback starts when the recognition session starts.
+  try { await context.resume(); await audio.play(); audio.pause(); audio.currentTime = 0; }
   catch { context.close().catch(() => {}); $('testAudio').value = ''; return message('無法讀取這個音檔，請改用 mp3、m4a 或 wav。'); }
-  fileSource = {audio, context, track: output.stream.getAudioTracks()[0]};
+  fileSource = {audio, context, track: output.stream.getAudioTracks()[0], pending: '', failures: 0};
   $('fileProgress').hidden = false;
   startAudio();
 };
