@@ -47,6 +47,15 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(chunks[-1][1], 50*r)
         self.assertEqual(ev.fixed_chunks(25*r, 10*r), [(0, 10*r), (10*r, 20*r), (20*r, 25*r)])
 
+    def test_hymn_is_removed_for_speech_only_and_sung_text_is_not_counted(self):
+        text = '講道第一段。\n講道最後一句話到此結束了。\n\n一　哦主，在我你是生命，\n（副）哦主，你是生命之靈，\n二　第二節歌詞'
+        speech = ev.without_hymn(text)
+        self.assertEqual(ev.normalize(speech), '講道第一段講道最後一句話到此結束了')
+        self.assertEqual(ev.without_hymn('只有講道\n一　單獨一行編號'), '只有講道\n一　單獨一行編號')
+        reference = ev.normalize('前面的內容' * 10 + speech)
+        hypothesis = reference + '唱歌被辨識成的許多文字唱歌被辨識成的許多文字'
+        self.assertEqual(ev.cut_after_reference_end(reference, hypothesis), reference)
+
     def test_live_corrections_are_applied_per_segment(self):
         out = ev.corrections(['我們讀以服所書', '耶蘇愛我'])
         self.assertEqual(out['phonetic'], ['我們讀以弗所書', '耶穌愛我'])
