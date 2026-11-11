@@ -260,7 +260,9 @@ def main():
     parser.add_argument('--model-label', default='whisper-large-v3-turbo')
     parser.add_argument('--device', default='auto', choices=['auto', 'cuda', 'cpu'])
     parser.add_argument('--only', help='Comma-separated pair ids (e.g. 01) to evaluate')
-    parser.add_argument('--reuse', help='Earlier run folder: reuse its recognizer outputs and only re-score')
+    parser.add_argument('--reuse', help='Earlier (possibly interrupted) run folder: reuse its recognizer outputs, '
+                        'recognize only what is missing, and re-score everything')
+    parser.add_argument('--development', action='store_true', help='Development data (e.g. Bible readings), not a sealed test')
     parser.add_argument('--conditions', default='full,fixed15,vad15',
                         help='full (whole file), full_prompt (+Traditional prompt), fixed<N> / vad<N> (N-second live chunks)')
     args = parser.parse_args()
@@ -272,23 +274,30 @@ def main():
         pairs = [p for p in pairs if p in set(args.only.split(','))]
     if not pairs:
         raise SystemExit('No NN.mp3 + NN.txt pairs found')
-    model = None
-    if args.model_dir and not args.reuse:
-        from faster_whisper import WhisperModel
-        import ctranslate2
-        device = args.device if args.device != 'auto' else ('cuda' if ctranslate2.get_cuda_device_count() else 'cpu')
-        model = WhisperModel(args.model_dir, device=device, compute_type='float16' if device == 'cuda' else 'int8',
-                             local_files_only=True)
-        try:  # Fail fast (e.g. missing libcublas.so.12) before spending time on long audio.
-            import numpy as np
-            list(model.transcribe(np.zeros(16000, np.float32), language='zh')[0])
-        except RuntimeError as error:
-            raise SystemExit(f'模型無法在 {device} 上執行：{error}\n'
-                             '若是缺少 libcublas／libcudnn：請安裝 nvidia-cublas-cu12、nvidia-cudnn-cu12 並設定 LD_LIBRARY_PATH'
-                             '（Colab 筆記本第 3 格會自動處理）。') from error
-        print(f'模型 {args.model_label}，裝置 {device}', flush=True)
+    loaded = {}
+
+    def get_model():
+        """Load the recognizer only when some output is not already available (--reuse / resumed runs)."""
+        if 'model' not in loaded:
+            if not args.model_dir:
+                raise SystemExit('Recognizer output missing and no --model-dir given')
+            from faster_whisper import WhisperModel
+            import ctranslate2
+            device = args.device if args.device != 'auto' else ('cuda' if ctranslate2.get_cuda_device_count() else 'cpu')
+            model = WhisperModel(args.model_dir, device=device, compute_type='float16' if device == 'cuda' else 'int8',
+                                 local_files_only=True)
+            try:  # Fail fast (e.g. missing libcublas.so.12) before spending time on long audio.
+                import numpy as np
+                list(model.transcribe(np.zeros(16000, np.float32), language='zh')[0])
+            except RuntimeError as error:
+                raise SystemExit(f'模型無法在 {device} 上執行：{error}\n'
+                                 '若是缺少 libcublas／libcudnn：請安裝 nvidia-cublas-cu12、nvidia-cudnn-cu12 並設定 LD_LIBRARY_PATH'
+                                 '（Colab 筆記本第 3 格會自動處理）。') from error
+            print(f'模型 {args.model_label}，裝置 {device}', flush=True)
+            loaded['model'] = model
+        return loaded['model']
     terms, names = church_terms(), bible_names()
-    report = dict(created_at=datetime.now(timezone.utc).isoformat(timespec='seconds'), sealed_test=True,
+    report = dict(created_at=datetime.now(timezone.utc).isoformat(timespec='seconds'), sealed_test=not args.development,
                   model=args.model_label, model_bin_sha256=sha256_file(Path(args.model_dir)/'model.bin') if args.model_dir else None,
                   normalizer='NFC + OpenCC s2tw (hypothesis) + keep CJK/Latin/digits, lowercase',
                   code_files={p: sha256_file(ROOT/p) for p in ['glossary.js', 'public/phonetic.js', 'public/church-terms.js',
@@ -303,7 +312,7 @@ def main():
                      name_occurrences=len(spans['full']['names']), conditions=[])
         print(f'[{pair}] 參考文字 {entry["reference_chars"]} 字、教會專名 {entry["term_occurrences"]} 處、'
               f'人名地名 {entry["name_occurrences"]} 處', flush=True)
-        if model or args.reuse:
+        if args.model_dir or args.reuse:
             for condition in [c.strip() for c in args.conditions.split(',') if c.strip()]:
                 chunked = re.fullmatch(r'(fixed|vad)(\d+)', condition)
                 cached = Path(args.reuse)/f'{pair}.{condition_name(condition)}.json' if args.reuse else None
@@ -311,18 +320,17 @@ def main():
                 if reused:
                     name = condition_name(condition)
                     texts = json.loads(cached.read_text(encoding='utf-8'))['raw']
-                    timing = next((c for e in json.loads((Path(args.reuse)/'report.json').read_text(encoding='utf-8'))['pairs']
-                                   if e['id'] == pair for c in e['conditions'] if c['condition'] == name), {})
-                    timing = {k: v for k, v in timing.items() if k not in ('variants', 'condition', 'segments', 'phonetic_changes', 'raw_simplified_ratio')}
-                    prompt = timing.pop('prompt', None)
+                    saved = json.loads(cached.read_text(encoding='utf-8'))
+                    timing = dict(saved.get('timing', {}))  # older outputs (before resume support) have no timing
+                    prompt = saved.get('prompt')
                 elif condition in ('full', 'full_prompt'):
                     prompt = NEUTRAL_PROMPT if condition == 'full_prompt' else None
                     name = 'whisper_traditional_prompt' if prompt else 'whisper_no_prompt'
-                    texts, timing = transcribe(model, meet/f'{pair}.mp3', prompt)
+                    texts, timing = transcribe(get_model(), meet/f'{pair}.mp3', prompt)
                 elif chunked:
                     mode, seconds = chunked.group(1), int(chunked.group(2))
                     name, prompt = f'whisper_live_{mode}_{seconds}s', None
-                    texts, timing = transcribe_chunked(model, meet/f'{pair}.mp3', mode, seconds)
+                    texts, timing = transcribe_chunked(get_model(), meet/f'{pair}.mp3', mode, seconds)
                 else:
                     raise SystemExit(f'Unknown condition: {condition}')
                 result, out = score_variants(name, texts, references, spans, converter)
@@ -330,9 +338,11 @@ def main():
                 if reused:
                     result['reused_from'] = str(args.reuse)
                 entry['conditions'].append(result)
-                (output/f'{pair}.{name}.json').write_text(json.dumps(dict(raw=texts, **out), ensure_ascii=False, indent=1), encoding='utf-8')
+                (output/f'{pair}.{name}.json').write_text(json.dumps(dict(raw=texts, timing=timing, prompt=prompt, **out),
+                                                                     ensure_ascii=False, indent=1), encoding='utf-8')
                 delay = f'，字幕延遲中位數 {timing["caption_delay_seconds_median"]} 秒、P95 {timing["caption_delay_seconds_p95"]} 秒' if 'chunks' in timing else ''
-                print(f'  {name}: 完成（RTF {timing["rtf"]}{delay}）', flush=True)
+                source = '沿用先前辨識結果' if reused else f'RTF {timing.get("rtf")}'
+                print(f'  {name}: 完成（{source}{delay}）', flush=True)
         chrome = meet/f'{pair}.chrome.txt'
         if chrome.exists():
             texts = chrome_segments(chrome)
