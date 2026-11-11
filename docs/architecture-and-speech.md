@@ -23,7 +23,9 @@ flowchart LR
 
 用 Chrome 時，`SpeechRecognition` 同時執行但只當灰字預覽（確定結果不進字幕），Whisper 的結果出來後取代。
 Whisper 某段失敗時，那段預覽文字改為字幕，不遺失；連續 3 段失敗、免費額度用完（Workers AI 3036）或達到
-每日上限時，自動改用 Chrome 辨識並提示。設定可改選「Chrome 即時辨識」。音檔測試功能只測 Chrome。
+每日上限時，自動改用 Chrome 辨識並提示。設定可改選「Chrome 即時辨識」。音檔測試依「辨識方式」：Whisper 把整個檔案解碼成 16 kHz、用同一套切段後每次並行送 3 段（比即時快很多）；Chrome 以正常速度播放給 SpeechRecognition。
+
+Whisper 在靜音或雜音裡會「聽到」影音網站的字幕署名（例：優優獨播劇場、字幕志願者），`cloudflare/transcript.js` 濾掉這類字句與 Whisper 判定為無語音的低信心段落；同一句較長的字幕連續出現兩次只顯示一次。
 
 用量：免費方案每天 10,000 neurons（約 214 分鐘音訊，UTC 0 點重置）；`SpeechLimit` Durable Object 限制每個 IP
 每天 4 小時音訊、每分鐘 40 段，避免他人耗盡額度。Worker 不保存音訊；Node 版沒有 Workers AI，只提供 Chrome 辨識。

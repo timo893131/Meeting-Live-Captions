@@ -130,12 +130,33 @@ test('Whisper captions arrive per spoken chunk with church-term correction; Chro
 test('when the Whisper free allocation is used up, captioning continues with Chrome', async t => {
   const {page} = await fixture(t, context => whisperSite(context, route => route.fulfill({status: 429, json: {error: '額度', code: 'quota'}})));
   await page.locator('#start').click();
+  await expect(page.locator('#micStatus')).toHaveText('收音中・Whisper');
   await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('第一句的預覽'); window.__speak(1.2); });
   await expect(page.locator('#message')).toContainText('已改用 Chrome 即時辨識', {timeout: 10000});
   await expect(page.locator('#captions')).toContainText('第一句的預覽');  // nothing heard is lost
   await expect(page.locator('#micStatus')).toHaveText('收音中・Chrome');
   await page.evaluate(() => window.__speech.emit('第二句'));
   await expect(page.locator('#captions p')).toHaveCount(2);
+});
+
+test('audio-file test with Whisper sends the file in pause-cut chunks and shows captions in order', async t => {
+  let calls = 0;
+  const {page} = await fixture(t, context => whisperSite(context, async route => {
+    const n = ++calls; await new Promise(resolve => setTimeout(resolve, n === 1 ? 400 : 0));  // first answer arrives last
+    await route.fulfill({json: {text: n === 1 ? '我們讀以服所書' : `第${n}段`}});
+  }));
+  // 3 phrases of 6 s with 2 s pauses: three chunks.
+  const wav = await page.evaluate(async () => {
+    const {encodeWav, RATE} = await import('/speech-chunker.js');
+    const samples = new Float32Array(RATE * 24);
+    for (let i = 0; i < samples.length; i++) { const s = i / RATE % 8; samples[i] = s < 6 && i % 4000 < 3200 ? 0.2 * Math.sin(i / 5) : 0; }
+    return Array.from(new Uint8Array(encodeWav(samples)));
+  });
+  await page.locator('#testAudio').setInputFiles({name: 'test.wav', mimeType: 'audio/wav', buffer: Buffer.from(wav)});
+  await expect(page.locator('#message')).toContainText('音檔辨識完成', {timeout: 15000});
+  await expect(page.locator('#captions p')).toHaveText(['我們讀以弗所書', '第2段', '第3段']);
+  await expect(page.locator('#fileProgress')).toBeHidden();
+  assert.equal(calls, 3);
 });
 
 test('same-sound church-term correction applies to captions, follows the toggle and host-added terms', async t => {

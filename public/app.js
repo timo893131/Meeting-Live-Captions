@@ -1,6 +1,6 @@
 import {defaultGlossary, parseGlossary, correctText} from '/glossary.js';
 import {DEFAULT_TERMS, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '/phonetic.js';
-import {startMicrophoneChunks, encodeWav, createOrderedQueue} from '/speech-chunker.js';
+import {RATE, createSegmenter, startMicrophoneChunks, encodeWav, createOrderedQueue} from '/speech-chunker.js';
 
 const $ = id => document.getElementById(id);
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -341,7 +341,9 @@ function deliverWhisper(state, item) {
   if (state.discarded) return;
   if (item.text !== undefined) {
     state.failures = 0;
-    if (item.text) {
+    // Whisper may repeat itself on noise or music: the same longer line twice in a row is shown once.
+    if (item.text && !(item.text.length >= 6 && item.text === state.lastText)) {
+      state.lastText = item.text;
       const glossary = parseGlossary($('glossary').value), terms = [...DEFAULT_TERMS, ...parseTerms($('glossary').value)];
       sendCaption(correctCaption(item.text, glossary, terms), true);
     }
@@ -355,6 +357,7 @@ function fallbackToChrome(state, code) {
   if (whisper !== state) return;
   whisper = null; state.capture?.stop();
   const reason = {quota: '今天的 Whisper 免費額度已用完', limit: '這個網路今天的 Whisper 用量已達上限', unavailable: '此網站沒有 Whisper 辨識'}[code] || 'Whisper 辨識連續失敗';
+  if (state.file) { stopAudio({error: true}); return message(`${reason}，音檔辨識已停止；已完成的字幕仍保留，可以下載。`); }
   if (SpeechRecognition && wantsAudio && !state.noPreview) {
     message(`${reason}，已改用 Chrome 即時辨識繼續字幕。`, 'info'); updateUI();
   } else {
@@ -535,11 +538,44 @@ for (const id of ['personal', 'host', 'viewer']) $(id).onclick = () => selectMod
 $('start').onclick = startAudio;
 
 const clock = seconds => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}` : '--:--';
+// Audio-file test with Whisper: decode the whole file at 16 kHz, cut it at pauses like the live microphone, and
+// send the chunks a few at a time (much faster than playing it in real time).
+async function whisperFileTest(file) {
+  $('testAudio').value = ''; message('正在讀取音檔…', 'info');
+  let samples;
+  try {
+    const decoded = await new OfflineAudioContext(1, 1, RATE).decodeAudioData(await file.arrayBuffer());
+    samples = decoded.getChannelData(0).slice();
+    for (let c = 1; c < decoded.numberOfChannels; c++) {
+      const channel = decoded.getChannelData(c);
+      for (let i = 0; i < samples.length; i++) samples[i] += channel[i];
+    }
+    if (decoded.numberOfChannels > 1) for (let i = 0; i < samples.length; i++) samples[i] /= decoded.numberOfChannels;
+  } catch { return message('無法讀取這個音檔，請改用 mp3、m4a 或 wav。'); }
+  const segmenter = createSegmenter(), chunks = [...segmenter.push(samples), ...segmenter.flush()];
+  samples = null;
+  if (!chunks.length) return message('音檔裡沒有偵測到說話聲。');
+  const total = chunks.reduce((n, c) => n + c.length, 0) / RATE;
+  message(); wantsAudio = true; micState = 'active'; ensurePinyin();
+  const state = {failures: 0, preview: '', capture: null, discarded: false, noPreview: true, file: true};
+  state.queue = createOrderedQueue(item => deliverWhisper(state, item));
+  whisper = state; updateUI();
+  let next = 0, finished = 0;
+  const progress = () => { $('fileProgress').textContent = `Whisper 音檔辨識中：${finished} / ${chunks.length} 段（說話約 ${clock(total)}）`; };
+  $('fileProgress').hidden = false; progress();
+  const worker = async () => {
+    while (next < chunks.length && whisper === state) { const chunk = chunks[next++]; await sendChunk(state, chunk); finished++; progress(); }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  $('fileProgress').hidden = true;
+  if (whisper === state) { stopAudio(); message(`音檔辨識完成（Whisper，${chunks.length} 段），可以按「下載字幕」。`, 'success'); }
+}
 $('testAudio').onchange = async () => {
   const file = $('testAudio').files[0];
   if (!file) return;
   if (mode !== 'personal') { $('testAudio').value = ''; return message('音檔測試只能在個人模式使用。'); }
   if (wantsAudio || busy) { $('testAudio').value = ''; return message('請先停止收音，再選擇音檔。'); }
+  if (serverSpeech && $('engine').value === 'whisper') return whisperFileTest(file);
   if (!SpeechRecognition) { $('testAudio').value = ''; return message('此瀏覽器不支援語音辨識，請使用桌面版 Chrome 133 以上。'); }
   const audio = new Audio(URL.createObjectURL(file)), context = new AudioContext();
   const output = context.createMediaStreamDestination();
