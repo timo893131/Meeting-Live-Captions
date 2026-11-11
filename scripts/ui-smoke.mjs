@@ -147,6 +147,25 @@ test('audio-file test keeps unfinished phrases across sessions and retries netwo
   for (const type of ['start', 'result', 'end', 'error', 'interim-dropped', 'restart-after-final']) assert.ok(types.includes(type), type);
 });
 
+test('audio-file test restarts a stalled recognizer, keeps the phrase and rewinds to the last answer', async t => {
+  const {page} = await fixture(t);
+  await page.locator('#settings summary').click();
+  await page.locator('#testAudio').setInputFiles({name: 'stall.wav', mimeType: 'audio/wav', buffer: silentWav(60)});
+  await page.waitForFunction(() => window.__startTrack);
+  const count = await page.evaluate(() => window.__speechCount);
+  await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('卡住之前的辨識中文字', false); });
+  // The recognizer now stays silent while the audio plays: the watchdog restarts it after ~5 s of audio.
+  await page.waitForFunction(c => window.__speechCount > c, count, {timeout: 12000});
+  await expect(page.locator('#captions')).toContainText('卡住之前的辨識中文字');
+  await page.locator('#stop').click();
+  const download = page.waitForEvent('download');
+  await page.locator('#diagnostics').click();
+  const entries = (await import('node:fs')).readFileSync(await (await download).path(), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const stall = entries.find(entry => entry.type === 'stall');
+  assert.ok(stall, 'stall logged');
+  assert.ok(stall.rewindTo !== null && stall.rewindTo < stall.at, 'rewound to before the stall');
+});
+
 test('audio-file test feeds the file to recognition as a track without the speakers and finishes by itself', async t => {
   const {page} = await fixture(t);
   await page.locator('#settings summary').click();
