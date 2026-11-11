@@ -13,6 +13,23 @@ let micState = 'idle', wakeLock = null, wakePending = false;
 // Audio-file test: the file plays into a Web Audio stream (not the speakers) whose track is recognized.
 let fileSource = null;
 const FILE_RETRIES = 8;
+// Chrome sometimes stops answering mid-phrase on an audio track. If no result arrives for STALL_SECONDS of
+// audio (or SILENT_SESSION_SECONDS when a session has produced nothing, which may be real silence or music),
+// the session is restarted; after a mid-phrase stall the audio is rewound to the last answered position.
+const STALL_SECONDS = 5, SILENT_SESSION_SECONDS = 8;
+function checkFileStall() {
+  const source = fileSource;
+  if (!source || !recognition || micState !== 'active' || source.audio.paused || source.audio.ended || source.stopping) return;
+  const answered = source.lastResultAt != null, since = answered ? source.lastResultAt : source.sessionStartAt;
+  if (source.audio.currentTime - since < (answered ? STALL_SECONDS : SILENT_SESSION_SECONDS)) return;
+  // Rewind only forward of the previous rewind target, so real silence cannot loop forever.
+  const target = answered ? Math.max(source.sessionStartAt, source.lastResultAt - 0.5) : null;
+  source.rewindTo = target != null && target > (source.lastRewindTo ?? -1) + 0.5 ? target : null;
+  if (source.rewindTo != null) source.lastRewindTo = source.rewindTo;
+  fileStats.stalls++; diag('stall', {since: +since.toFixed(1), rewindTo: source.rewindTo});
+  source.stopping = true;
+  try { recognition.stop(); } catch {}
+}
 // Diagnostics for the audio-file test (kept after it stops, downloadable as JSON lines).
 let fileLog = null, fileStats = null;
 function diag(type, data = {}) {
@@ -172,6 +189,7 @@ function stopAudio({discard = false, error = false} = {}) {
   wantsAudio = false;
   if (fileSource) {
     const source = fileSource; fileSource = null;
+    clearInterval(source.watchdog);
     source.audio.pause(); source.context.close().catch(() => {}); URL.revokeObjectURL(source.audio.src);
     $('fileProgress').hidden = true; $('testAudio').value = '';
   }
@@ -216,7 +234,10 @@ function beginRecognition(run) {
     // Audio-file test: the file only plays while a recognition session is running, so nothing is skipped
     // while Chrome reconnects between sessions.
     if (fileSource && !fileSource.audio.ended) fileSource.audio.play().catch(() => {});
-    if (fileSource) { fileStats.sessions++; diag('start'); }
+    if (fileSource) {
+      Object.assign(fileSource, {sessionStartAt: fileSource.audio.currentTime, lastResultAt: null, stopping: false});
+      fileStats.sessions++; diag('start');
+    }
   };
   rec.onresult = event => {
     if (!current()) return;
@@ -238,11 +259,11 @@ function beginRecognition(run) {
       if (dropped) fileStats.drops++;
       diag(dropped ? 'interim-dropped' : 'result', {index: event.resultIndex, total: event.results.length, finals,
         interim: interim.length, before: fileSource.pending.length});
-      fileSource.pending = interim; fileSource.failures = 0;
+      fileSource.pending = interim; fileSource.failures = 0; fileSource.lastResultAt = fileSource.audio.currentTime;
       // Diagnostics showed Chrome goes deaf for ~30 s after each final result on an audio track, while a fresh
       // session responds within 1–3 s: so end the session after every final and restart (audio waits meanwhile).
       if (finals.length && !fileSource.restartAfterFinal) {
-        fileSource.restartAfterFinal = true; diag('restart-after-final');
+        fileSource.restartAfterFinal = true; fileSource.stopping = true; diag('restart-after-final');
         try { rec.stop(); } catch {}
       }
     }
@@ -266,8 +287,11 @@ function beginRecognition(run) {
       if (source.pending) { sendCaption(source.pending, true); source.pending = ''; }  // keep the unfinished phrase
       sendCaption('', false);
       // Rewind a little so a phrase cut by the restart is heard again; less after a planned restart.
-      if (!audio.ended) { audio.pause(); audio.currentTime = Math.max(0, audio.currentTime - (source.restartAfterFinal ? 0.3 : 1)); }
-      source.restartAfterFinal = false;
+      if (!audio.ended) {
+        audio.pause();
+        audio.currentTime = source.rewindTo ?? Math.max(0, audio.currentTime - (source.restartAfterFinal ? 0.3 : 1));
+      }
+      source.restartAfterFinal = false; source.rewindTo = null;
       if (source.failures >= FILE_RETRIES) {
         stopAudio({discard: true, error: true});
         message('語音服務連續中斷，音檔測試已停止。請確認網路後重新選擇音檔。');
@@ -445,7 +469,7 @@ $('testAudio').onchange = async () => {
   audio.ontimeupdate = () => {
     if (fileSource?.audio !== audio) return;  // also skips the playback check before the test starts
     $('fileProgress').textContent = `音檔辨識中：${clock(audio.currentTime)} / ${clock(audio.duration)}｜辨識階段 ${fileStats.sessions} 次｜`
-      + `確定字幕 ${fileStats.finals} 句｜錯誤 ${fileStats.errors} 次｜辨識中文字被丟棄 ${fileStats.drops} 次`;
+      + `確定字幕 ${fileStats.finals} 句｜錯誤 ${fileStats.errors} 次｜卡住重啟 ${fileStats.stalls} 次`;
   };
   audio.onended = () => {
     diag('audio-ended');
@@ -457,7 +481,8 @@ $('testAudio').onchange = async () => {
   try { await context.resume(); await audio.play(); audio.pause(); audio.currentTime = 0; }
   catch { context.close().catch(() => {}); $('testAudio').value = ''; return message('無法讀取這個音檔，請改用 mp3、m4a 或 wav。'); }
   fileSource = {audio, context, track: output.stream.getAudioTracks()[0], pending: '', failures: 0};
-  fileStats = {began: performance.now(), sessions: 0, finals: 0, errors: 0, drops: 0};
+  fileStats = {began: performance.now(), sessions: 0, finals: 0, errors: 0, drops: 0, stalls: 0};
+  fileSource.watchdog = setInterval(checkFileStall, 500);
   fileLog = [{type: 'file', name: file.name, duration: +audio.duration.toFixed(1), browser: navigator.userAgent,
     language: $('language').value, phonetic: $('phonetic').checked, sampleRate: context.sampleRate}];
   $('fileProgress').hidden = false; $('diagnostics').hidden = false;
