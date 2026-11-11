@@ -105,15 +105,40 @@ test('same-sound church-term correction applies to captions, follows the toggle 
   await expect(page.locator('#phonetic')).not.toBeChecked();
 });
 
+function silentWav(seconds) {
+  const rate = 16000, samples = rate*seconds, wav = Buffer.alloc(44 + samples*2);
+  wav.write('RIFF', 0); wav.writeUInt32LE(36 + samples*2, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate*2, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(samples*2, 40);
+  return wav;
+}
+
+test('audio-file test keeps unfinished phrases across sessions and retries network errors', async t => {
+  const {page} = await fixture(t);
+  await page.locator('#settings summary').click();
+  await page.locator('#testAudio').setInputFiles({name: 'long.wav', mimeType: 'audio/wav', buffer: silentWav(60)});
+  await page.waitForFunction(() => window.__startTrack);
+  await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('尚未確定的一句', false); });
+  const first = await page.evaluate(() => window.__speechCount);
+  await page.evaluate(() => window.__speech.end());       // Chrome ends the session on its own
+  await expect(page.locator('#captions')).toContainText('尚未確定的一句');
+  await page.waitForFunction(count => window.__speechCount > count, first);  // restarted with the same file
+  for (let i = 0; i < 3; i++) {                             // transient network errors do not stop the test
+    const count = await page.evaluate(() => window.__speechCount);
+    await page.evaluate(() => { window.__speech.fail('network'); window.__speech.end(); });
+    await page.waitForFunction(c => window.__speechCount > c, count, {timeout: 10000});
+  }
+  await expect(page.locator('#stop')).toBeEnabled();
+  await expect(page.locator('#message')).toBeHidden();
+  await page.locator('#stop').click();
+  await expect(page.locator('#fileProgress')).toBeHidden();
+});
+
 test('audio-file test feeds the file to recognition as a track without the speakers and finishes by itself', async t => {
   const {page} = await fixture(t);
   await page.locator('#settings summary').click();
   await expect(page.locator('#fileTest')).toBeVisible();
-  const rate = 16000, samples = rate, wav = Buffer.alloc(44 + samples*2);
-  wav.write('RIFF', 0); wav.writeUInt32LE(36 + samples*2, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
-  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate*2, 28);
-  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(samples*2, 40);
-  await page.locator('#testAudio').setInputFiles({name: 'test.wav', mimeType: 'audio/wav', buffer: wav});
+  await page.locator('#testAudio').setInputFiles({name: 'test.wav', mimeType: 'audio/wav', buffer: silentWav(1)});
   await page.waitForFunction(() => window.__startTrack);
   assert.deepEqual(await page.evaluate(() => window.__startTrack), {kind: 'audio', readyState: 'live'});
   await expect(page.locator('#fileProgress')).toBeVisible();
