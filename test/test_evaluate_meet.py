@@ -82,5 +82,78 @@ class ScoringTests(unittest.TestCase):
             self.assertTrue(report['sealed_test'])
 
 
+class WorkersAITests(unittest.TestCase):
+    def test_condition_names(self):
+        self.assertEqual(ev.condition_name('cfvad10'), 'workers_ai_live_vad_10s')
+        self.assertEqual(ev.condition_name('vad10'), 'whisper_live_vad_10s')
+
+    def test_request_reads_text_and_stops_on_daily_allocation(self):
+        import io, urllib.error, numpy as np
+        sent = []
+
+        class Response(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def ok(request, timeout):
+            sent.append(json.loads(request.data))
+            return Response(json.dumps({'success': True, 'result': {'text': ' 召會生活 '}}).encode())
+        text = ev.workers_ai_request(np.zeros(1600, np.float32), 'acct', 'tok', opener=ok)
+        self.assertEqual(text, '召會生活')
+        self.assertEqual((sent[0]['language'], sent[0]['vad_filter'], sent[0]['condition_on_previous_text']), ('zh', False, False))
+
+        def quota(request, timeout):
+            body = io.BytesIO(json.dumps({'errors': [{'code': 3036, 'message': 'Account limited'}]}).encode())
+            raise urllib.error.HTTPError(request.full_url, 429, 'Too Many Requests', {}, body)
+        with self.assertRaises(ev.QuotaExhausted):
+            ev.workers_ai_request(np.zeros(1600, np.float32), 'acct', 'tok', opener=quota)
+
+    def test_budget_stops_and_resume_continues_from_saved_chunks(self):
+        import numpy as np
+        from unittest import mock
+        samples = np.zeros(25*ev.RATE, np.float32)
+        calls = []
+        fake = lambda chunk, account, token: calls.append(len(chunk)) or f'第{len(calls)}段'
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(ev, 'decode_audio', return_value=samples), \
+                mock.patch.dict('os.environ', {'CF_ACCOUNT_ID': 'a', 'CF_API_TOKEN': 't'}):
+            partial = Path(folder)/'01.partial.json'
+            with self.assertRaises(ev.QuotaExhausted):  # 10 s chunks; budget allows two
+                ev.transcribe_workers_ai('01.mp3', 'fixed', 10, partial, dict(used=0, max=21/60), request=fake)
+            self.assertEqual(len(json.loads(partial.read_text(encoding='utf-8'))), 2)
+            texts, timing = ev.transcribe_workers_ai('01.mp3', 'fixed', 10, partial, dict(used=0, max=10), request=fake)
+        self.assertEqual(texts, ['第1段', '第2段', '第3段'])
+        self.assertEqual(calls, [10*ev.RATE, 10*ev.RATE, 5*ev.RATE])
+        self.assertEqual(timing['chunks'], 3)
+        self.assertGreater(timing['neurons_estimate'], 0)
+
+
+    def test_run_pauses_on_budget_and_resumes_with_reuse(self):
+        import numpy as np
+        from unittest import mock
+        samples = np.zeros(25*ev.RATE, np.float32)
+        fake = mock.Mock(side_effect=lambda chunk, account, token: '我們讀以服所書')
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(ev, 'decode_audio', return_value=samples), \
+                mock.patch.object(ev, 'workers_ai_request', fake), \
+                mock.patch.dict('os.environ', {'CF_ACCOUNT_ID': 'a', 'CF_API_TOKEN': 't'}):
+            meet = Path(folder)/'MEET'; meet.mkdir()
+            (meet/'01.mp3').write_bytes(b'ID3synthetic')
+            (meet/'01.txt').write_text('我們讀以弗所書', encoding='utf-8')
+            first, second = Path(folder)/'run1', Path(folder)/'run2'
+            sys.argv = ['evaluate_meet.py', '--meet', str(meet), '--output', str(first), '--conditions', 'cffixed10',
+                        '--cf-max-minutes', str(15/60)]
+            with self.assertRaises(SystemExit) as stopped:
+                ev.main()
+            self.assertEqual(stopped.exception.code, 3)
+            sys.argv = ['evaluate_meet.py', '--meet', str(meet), '--output', str(second), '--conditions', 'cffixed10',
+                        '--reuse', str(first)]
+            ev.main()
+            report = json.loads((second/'report.json').read_text(encoding='utf-8'))
+        self.assertEqual(fake.call_count, 3)  # one chunk before the pause, two after: none sent twice
+        condition = report['pairs'][0]['conditions'][0]
+        self.assertEqual(condition['condition'], 'workers_ai_live_fixed_10s')
+        self.assertEqual(condition['variants']['full/phonetic']['terms_correct'], 1)
+        self.assertEqual(report['workers_ai_model'], ev.CF_MODEL)
+
+
 if __name__ == '__main__':
     unittest.main()

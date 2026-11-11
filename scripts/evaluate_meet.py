@@ -13,12 +13,16 @@ For every recognizer output three variants are scored, the same way the website 
 Recognizer conditions (--conditions): full = whole file in one pass; fixed<N>/vad<N> = live-caption simulation
 where audio is cut every N seconds (fixed) or at pauses with N seconds max (vad) and each chunk is recognized
 without earlier context, as a Workers AI request per chunk would be; caption delay = chunk length + processing.
+cfvad<N>/cffixed<N> = the same chunks sent to Cloudflare Workers AI (@cf/openai/whisper-large-v3-turbo) through the
+REST API (env CF_ACCOUNT_ID, CF_API_TOKEN). Free plan: 10,000 neurons/day (~214 audio minutes); a run stops at
+--cf-max-minutes or when Cloudflare reports the daily allocation is used up, and resumes with --reuse <run>.
 
 Metrics: CER on normalized text (NFC, Simplified→Traditional for the hypothesis, punctuation/space removed),
 church-term accuracy on reference term occurrences, and chars fixed/broken by each correction step.
 This is a SEALED test: do not tune terms, prompts or rules from its errors; print aggregates only.
 """
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -27,12 +31,18 @@ import subprocess
 import sys
 import time
 import unicodedata
+import urllib.error
+import urllib.request
+import wave
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NEUTRAL_PROMPT = '以下是繁體中文的逐字稿。'
 LONG_DELETION = 20
+CF_MODEL = '@cf/openai/whisper-large-v3-turbo'
+CF_NEURONS_PER_AUDIO_MINUTE = 46.63  # Workers AI pricing page; free plan includes 10,000 neurons per day
 KEEP = re.compile(r'[㐀-䶿一-鿿豈-﫿A-Za-z0-9]')
 
 
@@ -205,9 +215,9 @@ RATE = 16000
 
 
 def condition_name(condition):
-    chunked = re.fullmatch(r'(fixed|vad)(\d+)', condition)
+    chunked = re.fullmatch(r'(cf)?(fixed|vad)(\d+)', condition)
     if chunked:
-        return f'whisper_live_{chunked.group(1)}_{chunked.group(2)}s'
+        return f'{"workers_ai" if chunked.group(1) else "whisper"}_live_{chunked.group(2)}_{chunked.group(3)}s'
     return {'full': 'whisper_no_prompt', 'full_prompt': 'whisper_traditional_prompt'}.get(condition, condition)
 
 
@@ -237,16 +247,32 @@ def fixed_chunks(total, max_samples):
     return [(start, min(start + max_samples, total)) for start in range(0, total, max_samples)]
 
 
+def live_spans(samples, mode, seconds):
+    """The live-caption chunks, identical for local Whisper and Workers AI so their results compare directly."""
+    limit = int(seconds*RATE)
+    if mode == 'vad':
+        from faster_whisper.vad import VadOptions, get_speech_timestamps
+        regions = get_speech_timestamps(samples, VadOptions(min_silence_duration_ms=300, speech_pad_ms=100))
+        return vad_chunks(regions, len(samples), limit)
+    return fixed_chunks(len(samples), limit)
+
+
+def live_timing(samples, spans, processing):
+    lengths = sorted((end - start)/RATE for start, end in spans)
+    delays = sorted((end - start)/RATE + p for (start, end), p in zip(spans, processing))
+    pick = lambda values, q: round(values[min(len(values) - 1, int(q*len(values)))], 2) if values else None
+    duration = len(samples)/RATE
+    return dict(duration_seconds=round(duration, 1), elapsed_seconds=round(sum(processing), 1),
+                       rtf=round(sum(processing)/duration, 3) if duration else None, chunks=len(spans),
+                       chunk_seconds_median=pick(lengths, 0.5), chunk_seconds_max=pick(lengths, 1.0),
+                       processing_seconds_p95=pick(sorted(processing), 0.95),
+                       caption_delay_seconds_median=pick(delays, 0.5), caption_delay_seconds_p95=pick(delays, 0.95))
+
+
 def transcribe_chunked(model, audio, mode, seconds):
     """Live-caption simulation: each chunk is recognized on its own (no earlier context), one caption per
     chunk. Delay = chunk length + processing time on THIS hardware (Workers AI timing differs)."""
-    from faster_whisper.vad import VadOptions, get_speech_timestamps
-    samples = decode_audio(audio); limit = int(seconds*RATE)
-    if mode == 'vad':
-        regions = get_speech_timestamps(samples, VadOptions(min_silence_duration_ms=300, speech_pad_ms=100))
-        spans = vad_chunks(regions, len(samples), limit)
-    else:
-        spans = fixed_chunks(len(samples), limit)
+    samples = decode_audio(audio); spans = live_spans(samples, mode, seconds)
     texts, processing = [], []
     for start, end in spans:
         began = time.monotonic()
@@ -255,15 +281,77 @@ def transcribe_chunked(model, audio, mode, seconds):
                                        without_timestamps=True)
         texts.append(''.join(s.text for s in segments).strip())
         processing.append(time.monotonic() - began)
-    lengths = sorted((end - start)/RATE for start, end in spans)
-    delays = sorted((end - start)/RATE + p for (start, end), p in zip(spans, processing))
-    pick = lambda values, q: round(values[min(len(values) - 1, int(q*len(values)))], 2) if values else None
-    duration = len(samples)/RATE
-    return texts, dict(duration_seconds=round(duration, 1), elapsed_seconds=round(sum(processing), 1),
-                       rtf=round(sum(processing)/duration, 3) if duration else None, chunks=len(spans),
-                       chunk_seconds_median=pick(lengths, 0.5), chunk_seconds_max=pick(lengths, 1.0),
-                       processing_seconds_p95=pick(sorted(processing), 0.95),
-                       caption_delay_seconds_median=pick(delays, 0.5), caption_delay_seconds_p95=pick(delays, 0.95))
+    return texts, live_timing(samples, spans, processing)
+
+
+class QuotaExhausted(Exception):
+    """Daily free allocation (or this run's --cf-max-minutes budget) used up; resume later with --reuse."""
+
+
+def wav_bytes(samples):
+    import numpy as np
+    buffer = BytesIO()
+    with wave.open(buffer, 'wb') as out:
+        out.setnchannels(1); out.setsampwidth(2); out.setframerate(RATE)
+        out.writeframes((np.clip(samples, -1, 1)*32767).astype('<i2').tobytes())
+    return buffer.getvalue()
+
+
+def workers_ai_request(samples, account, token, attempts=6, opener=urllib.request.urlopen):
+    """One chunk through the Workers AI REST API, with the same decoding settings as the local simulation."""
+    body = json.dumps(dict(audio=base64.b64encode(wav_bytes(samples)).decode('ascii'), task='transcribe', language='zh',
+                           vad_filter=False, condition_on_previous_text=False, beam_size=5)).encode()
+    url = f'https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{CF_MODEL}'
+    for attempt in range(attempts):
+        request = urllib.request.Request(url, data=body, method='POST', headers={
+            'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
+        try:
+            with opener(request, timeout=120) as response:
+                return (json.loads(response.read()).get('result') or {}).get('text', '').strip()
+        except urllib.error.HTTPError as error:
+            try:
+                errors = json.loads(error.read()).get('errors') or []
+            except ValueError:
+                errors = []
+            codes = {e.get('code') for e in errors}
+            detail = '; '.join(f"{e.get('code')} {e.get('message')}" for e in errors) or str(error)
+            if 3036 in codes:
+                raise QuotaExhausted(f'Cloudflare：今天的免費額度已用完（{detail}）') from error
+            if error.code in (401, 403) or 5035 in codes:
+                raise SystemExit(f'Workers AI 拒絕請求（HTTP {error.code}：{detail}）。請確認 CF_ACCOUNT_ID 與 '
+                                 'CF_API_TOKEN（需要 Workers AI 權限）。') from error
+            if error.code != 429 and error.code < 500:
+                raise SystemExit(f'Workers AI 錯誤（HTTP {error.code}：{detail}）') from error
+            last = detail
+        except (urllib.error.URLError, TimeoutError) as error:
+            last = str(error)
+        time.sleep(min(60, 2**attempt))
+    raise SystemExit(f'Workers AI 重試 {attempts} 次仍失敗：{last}')
+
+
+def transcribe_workers_ai(audio, mode, seconds, partial_path, budget, request=None):
+    """Send the live chunks to Workers AI one by one. Each finished chunk is saved to partial_path at once, so a
+    run stopped by the daily allocation or the budget continues where it stopped (--reuse)."""
+    request = request or workers_ai_request
+    account, token = os.environ.get('CF_ACCOUNT_ID'), os.environ.get('CF_API_TOKEN')
+    samples = decode_audio(audio); spans = live_spans(samples, mode, seconds)
+    done = json.loads(partial_path.read_text(encoding='utf-8')) if partial_path.exists() else []
+    if len(done) < len(spans) and not (account and token):
+        raise SystemExit('缺少 CF_ACCOUNT_ID／CF_API_TOKEN 環境變數')
+    for start, end in spans[len(done):]:
+        minutes = (end - start)/RATE/60
+        if budget['used'] + minutes > budget['max']:
+            raise QuotaExhausted(f'已達本次上限 {budget["max"]} 音訊分鐘（--cf-max-minutes）')
+        began = time.monotonic()
+        text = request(samples[start:end], account, token)
+        done.append(dict(text=text, processing=round(time.monotonic() - began, 3)))
+        budget['used'] += minutes
+        partial_path.write_text(json.dumps(done, ensure_ascii=False), encoding='utf-8')
+    timing = live_timing(samples, spans, [d['processing'] for d in done])
+    audio_minutes = sum(end - start for start, end in spans)/RATE/60
+    timing.update(audio_minutes=round(audio_minutes, 1), neurons_estimate=round(audio_minutes*CF_NEURONS_PER_AUDIO_MINUTE),
+                  processing_note='HTTPS round trip from the evaluation machine to Workers AI')
+    return [d['text'] for d in done], timing
 
 
 def transcribe(model, audio, prompt):
@@ -285,11 +373,16 @@ def main():
     parser.add_argument('--model-label', default='whisper-large-v3-turbo')
     parser.add_argument('--device', default='auto', choices=['auto', 'cuda', 'cpu'])
     parser.add_argument('--only', help='Comma-separated pair ids (e.g. 01) to evaluate')
-    parser.add_argument('--reuse', help='Earlier (possibly interrupted) run folder: reuse its recognizer outputs, '
-                        'recognize only what is missing, and re-score everything')
+    parser.add_argument('--reuse', action='append', default=[],
+                        help='Earlier (possibly interrupted) run folder, may be given more than once (first match wins): '
+                        'reuse its recognizer outputs, recognize only what is missing, and re-score everything')
     parser.add_argument('--development', action='store_true', help='Development data (e.g. Bible readings), not a sealed test')
     parser.add_argument('--conditions', default='full,fixed15,vad15',
-                        help='full (whole file), full_prompt (+Traditional prompt), fixed<N> / vad<N> (N-second live chunks)')
+                        help='full (whole file), full_prompt (+Traditional prompt), fixed<N> / vad<N> (N-second live chunks), '
+                        'cfvad<N> / cffixed<N> (the same chunks through Cloudflare Workers AI)')
+    parser.add_argument('--cf-max-minutes', type=float, default=190,
+                        help='Most audio minutes sent to Workers AI in this run (default 190 = about 8,900 of the 10,000 '
+                        'free daily neurons)')
     args = parser.parse_args()
     from opencc import OpenCC
     converter = OpenCC('s2tw')
@@ -300,6 +393,10 @@ def main():
     if not pairs:
         raise SystemExit('No NN.mp3 + NN.txt pairs found')
     loaded = {}
+    budget = dict(used=0.0, max=args.cf_max_minutes)
+
+    def earlier_file(name):
+        return next((Path(folder)/name for folder in args.reuse if (Path(folder)/name).exists()), None)
 
     def get_model():
         """Load the recognizer only when some output is not already available (--reuse / resumed runs)."""
@@ -327,6 +424,7 @@ def main():
                   normalizer='NFC + OpenCC s2tw (hypothesis) + keep CJK/Latin/digits, lowercase',
                   code_files={p: sha256_file(ROOT/p) for p in ['glossary.js', 'public/phonetic.js', 'public/church-terms.js',
                                                               'public/pinyin-zh.js', 'scripts/evaluate_meet.py']},
+                  workers_ai_model=CF_MODEL if 'cf' in args.conditions else None,
                   pairs=[])
     for pair in pairs:
         reference_text = clean_reference((meet/f'{pair}.txt').read_text(encoding='utf-8-sig'))
@@ -340,10 +438,11 @@ def main():
                      name_occurrences=len(spans['full']['names']), conditions=[])
         print(f'[{pair}] 參考文字 {entry["reference_chars"]} 字、教會專名 {entry["term_occurrences"]} 處、'
               f'人名地名 {entry["name_occurrences"]} 處', flush=True)
-        if args.model_dir or args.reuse:
+        if args.model_dir or args.reuse or re.search(r'\bcf', args.conditions):
             for condition in [c.strip() for c in args.conditions.split(',') if c.strip()]:
                 chunked = re.fullmatch(r'(fixed|vad)(\d+)', condition)
-                cached = Path(args.reuse)/f'{pair}.{condition_name(condition)}.json' if args.reuse else None
+                cloud = re.fullmatch(r'cf(fixed|vad)(\d+)', condition)
+                cached = earlier_file(f'{pair}.{condition_name(condition)}.json')
                 reused = bool(cached and cached.exists())
                 if reused:
                     name = condition_name(condition)
@@ -359,18 +458,35 @@ def main():
                     mode, seconds = chunked.group(1), int(chunked.group(2))
                     name, prompt = f'whisper_live_{mode}_{seconds}s', None
                     texts, timing = transcribe_chunked(get_model(), meet/f'{pair}.mp3', mode, seconds)
+                elif cloud:
+                    name, prompt = condition_name(condition), None
+                    partial = output/f'{pair}.{name}.partial.json'
+                    earlier = earlier_file(partial.name)
+                    if earlier and earlier.exists() and not partial.exists():
+                        partial.write_text(earlier.read_text(encoding='utf-8'), encoding='utf-8')
+                    try:
+                        texts, timing = transcribe_workers_ai(meet/f'{pair}.mp3', cloud.group(1), int(cloud.group(2)),
+                                                              partial, budget)
+                    except QuotaExhausted as stop:
+                        print(f'\n已暫停：{stop}\n已完成的段落存在 {output}。台灣時間早上 8 點（UTC 0 點）額度重置後，'
+                              f'把 --reuse "{output}" 加在最前面再執行一次就會從暫停處繼續。', flush=True)
+                        raise SystemExit(3)
                 else:
                     raise SystemExit(f'Unknown condition: {condition}')
                 result, out = score_variants(name, texts, references, spans, converter)
                 result.update(timing, prompt=prompt)
                 if reused:
-                    result['reused_from'] = str(args.reuse)
+                    result['reused_from'] = str(cached.parent)
                 entry['conditions'].append(result)
                 (output/f'{pair}.{name}.json').write_text(json.dumps(dict(raw=texts, timing=timing, prompt=prompt, **out),
                                                                      ensure_ascii=False, indent=1), encoding='utf-8')
+                if cloud and not reused:
+                    source_note = f'，{timing["audio_minutes"]} 音訊分鐘、約 {timing["neurons_estimate"]} neurons'
+                else:
+                    source_note = ''
                 delay = f'，字幕延遲中位數 {timing["caption_delay_seconds_median"]} 秒、P95 {timing["caption_delay_seconds_p95"]} 秒' if 'chunks' in timing else ''
                 source = '沿用先前辨識結果' if reused else f'RTF {timing.get("rtf")}'
-                print(f'  {name}: 完成（{source}{delay}）', flush=True)
+                print(f'  {name}: 完成（{source}{delay}{source_note}）', flush=True)
         chrome = meet/f'{pair}.chrome.txt'
         if chrome.exists():
             texts = chrome_segments(chrome)
