@@ -27,7 +27,7 @@ Cloudflare 官方目前提供 Workers Free 的 SQLite Durable Objects，但仍�
 2. 授權存取 `timo893131/Meeting-Live-Captions`，選擇 `main`。
 3. 根目錄使用儲存庫根目錄；build command 使用 `npm run build:assets`，deploy command 使用 `npx wrangler deploy`，Node.js 版本使用 22 或更新版本。
 4. Worker 名稱保持 `meeting-live-captions`，與 `wrangler.jsonc` 一致。若此名稱已被你帳號內另一專案使用，先變更設定檔名稱，避免覆蓋既有 Worker。
-5. 部署使用設定檔中的 SQLite Durable Object bindings 和 `v1` migration，不要改成 KV-backed Durable Objects。若帳號要求啟用功能，依後台的免費方案提示完成。
+5. 部署使用設定檔中的 SQLite Durable Object bindings 和 `v1`、`v2` migrations（v2 新增 `SpeechLimit`），不要改成 KV-backed Durable Objects。另有 Workers AI binding `AI`（Whisper 字幕）；免費方案每天 10,000 neurons，用完只會回錯誤、不計費，網頁會自動改用 Chrome 辨識。若帳號要求啟用功能，依後台的免費方案提示完成。
 6. 部署成功後，開啟 Cloudflare 提供的實際 `workers.dev` HTTPS 網址。網址由你的帳號決定，本文件不預先假設。
 
 不同後台版本的按鈕名稱可能不同。此方式由 Cloudflare 取得 GitHub 存取及部署權限，不需要將 Cloudflare token 傳到聊天。
@@ -93,6 +93,6 @@ export WRANGLER_SEND_METRICS=false
 
 為支援 Durable Object 休眠／重啟，房間驗證資訊與確定字幕會存入 Durable Object 的 SQLite-backed storage。最多保留最近 200 段，字幕總大小限制約 90 KB；長字幕可能使保留段數更少。這與 Node 版本只存記憶體的行為不同。
 
-房主結束房間或 12 小時到期時，應用會刪除該房間儲存的資料。這是應用層刪除，不代表保證供應商備份即時清除。未確定字幕存在 WebSocket attachment；詞彙表仍只存在房主瀏覽器。伺服器不儲存音訊。
+房主結束房間或 12 小時到期時，應用會刪除該房間儲存的資料。這是應用層刪除，不代表保證供應商備份即時清除。未確定字幕存在 WebSocket attachment；詞彙表仍只存在房主瀏覽器。伺服器不儲存音訊：Whisper 段落只在請求期間轉交 Workers AI 辨識；`SpeechLimit` 只存 IP 的 SHA-256 與當日用量秒數，每天換新。
 
 最多同時接受 200 個房間連線（含房主與尚未完成驗證的連線）。建立房間及驗證有基本限流；限流門檻考慮同一教會 Wi-Fi 共用對外 IP 的情境。大量公開流量仍應搭配 Cloudflare 的適當防護與用量監控。

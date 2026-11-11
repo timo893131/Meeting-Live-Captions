@@ -3,7 +3,7 @@
 ## 專案基準
 
 - 使用者溝通以繁體中文為主。產品服務教會聚會；以字幕可讀性、準確性、延遲和現場穩定性決策。
-- 目前辨識來源是瀏覽器 SpeechRecognition（zh-TW），詞彙表是文字校正；尚無自有 ASR 模型／訓練管線。
+- 辨識來源：Cloudflare 版預設 Workers AI Whisper large-v3-turbo（/api/transcribe，停頓切段），瀏覽器 SpeechRecognition 為即時預覽與備援；Node 版只有 SpeechRecognition。詞彙表是文字校正；尚無自有 ASR 模型／訓練管線。
 - 使用者已回報一般語音辨識效果不錯；這是定性試用結果，不是已量測的 CER 或專有名詞準確率。
 - 前端：public/、glossary.js；Node：server.js；Workers：cloudflare/worker.js、wrangler.jsonc。Cloudflare 是正式部署方向。
 - Node 房間只存記憶體；Workers 為休眠保存驗證資訊與字幕，結束或 12 小時到期刪除。修改時維持這個差異的文件一致性。

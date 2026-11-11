@@ -16,7 +16,7 @@ after(async () => {
   if (server) await new Promise(resolve => server.close(resolve));
   wss?.close();
 });
-async function fixture(t) {
+async function fixture(t, setup) {
   const context = await browser.newContext();
   const errors = [];
   context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
@@ -56,12 +56,14 @@ async function fixture(t) {
     }
     await context.close(); assert.deepEqual(errors, []);
   });
+  await setup?.(context);
   const page = await context.newPage(); await page.goto(base); return {context, page};
 }
 async function start(page) {
   await page.locator('#start').click(); await page.evaluate(() => window.__speech.confirmStart());
   await expect(page.locator('#micStatus')).toHaveText('收音中');
 }
+
 async function hostRoom(page) {
   await page.locator('#host').click(); await expect(page.locator('#status')).toHaveText('房間已連線');
   await expect(page.locator('#start')).toBeEnabled();
@@ -84,6 +86,56 @@ test('microphone state waits for actual startup, deduplicates final results, and
   await page.evaluate(() => window.__speech.confirmStart());
   await page.locator('#stop').click();
   await expect(page.locator('#stop')).toBeDisabled();
+});
+
+// Whisper (Workers AI) path: the Node server has no AI binding, so health and /api/transcribe are stubbed and the
+// microphone is a tone the test switches on and off.
+async function whisperSite(context, transcribe) {
+  await context.route('**/api/health', route => route.fulfill({json: {ok: true, runtime: 'cloudflare', transcribe: true}}));
+  await context.route('**/api/transcribe**', transcribe);
+  await context.addInitScript(() => {
+    if (!navigator.mediaDevices) return;  // about:blank before the site loads
+    navigator.mediaDevices.getUserMedia = async () => {
+      const audio = new AudioContext(), tone = audio.createOscillator(), gain = audio.createGain(), out = audio.createMediaStreamDestination();
+      gain.gain.value = 0; tone.connect(gain).connect(out); tone.start();
+      window.__speak = seconds => { gain.gain.setValueAtTime(0.3, audio.currentTime); gain.gain.setValueAtTime(0, audio.currentTime + seconds); };
+      return out.stream;
+    };
+  });
+}
+
+test('Whisper captions arrive per spoken chunk with church-term correction; Chrome shows the live preview', async t => {
+  const sent = [];
+  const {page} = await fixture(t, context => whisperSite(context, async route => {
+    const body = route.request().postDataBuffer();
+    sent.push({bytes: body.length, riff: body.subarray(0, 4).toString(), lang: new URL(route.request().url()).searchParams.get('lang')});
+    await route.fulfill({json: {text: '我們讀以服所書'}});
+  }));
+  await expect(page.locator('#engine')).toHaveValue('whisper');
+  await page.locator('#start').click();
+  await expect(page.locator('#micStatus')).toHaveText('收音中・Whisper');
+  await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('我們讀以', false); });
+  await expect(page.locator('#interim')).toHaveText('我們讀以');
+  await page.evaluate(() => { window.__speech.emit('我們讀以服所書'); window.__speak(1.5); });
+  await expect(page.locator('#interim')).toHaveText('我們讀以弗所書');  // Chrome's final stays a preview
+  await expect(page.locator('#captions p')).toHaveCount(1, {timeout: 10000});
+  await expect(page.locator('#captions')).toContainText('我們讀以弗所書');
+  await expect(page.locator('#interim')).toHaveText('');
+  assert.equal(sent.length, 1); assert.equal(sent[0].riff, 'RIFF'); assert.equal(sent[0].lang, 'zh');
+  assert.ok(sent[0].bytes > 44 + 32000 && sent[0].bytes < 44 + 32000 * 4, `chunk of about 1.5–2 s, got ${sent[0].bytes} bytes`);
+  await page.locator('#stop').click();
+  await expect(page.locator('#stop')).toBeDisabled();
+});
+
+test('when the Whisper free allocation is used up, captioning continues with Chrome', async t => {
+  const {page} = await fixture(t, context => whisperSite(context, route => route.fulfill({status: 429, json: {error: '額度', code: 'quota'}})));
+  await page.locator('#start').click();
+  await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('第一句的預覽'); window.__speak(1.2); });
+  await expect(page.locator('#message')).toContainText('已改用 Chrome 即時辨識', {timeout: 10000});
+  await expect(page.locator('#captions')).toContainText('第一句的預覽');  // nothing heard is lost
+  await expect(page.locator('#micStatus')).toHaveText('收音中・Chrome');
+  await page.evaluate(() => window.__speech.emit('第二句'));
+  await expect(page.locator('#captions p')).toHaveCount(2);
 });
 
 test('same-sound church-term correction applies to captions, follows the toggle and host-added terms', async t => {

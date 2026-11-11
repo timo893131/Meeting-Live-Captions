@@ -58,6 +58,8 @@
     </section>
     <details id="settings" class="card">
       <summary>語音與教會詞彙設定</summary>
+      <label>辨識方式<select id="engine"><option value="whisper">Whisper（較準；字幕約 8–12 秒後出現）</option><option value="chrome">Chrome 即時辨識（立即出現，較不準）</option></select></label>
+      <p id="engineHint" class="hint">Whisper 在 Cloudflare 上辨識，任何瀏覽器都能用；用 Chrome 時，正在說的話會先以灰字預覽。免費額度每天約 3.5 小時，用完會自動改用 Chrome。</p>
       <label>辨識語言<select id="language"><option value="zh-TW">繁體中文／國語</option><option value="en-US">English</option></select></label>
       <label class="check"><input type="checkbox" id="phonetic" checked> 同音教會專名校正（例：以服所書→以弗所書、詔會→召會）</label>
       <p class="hint">讀音完全相同才會改，只處理書卷名與教會專名，不改一般用字。</p>
@@ -66,13 +68,13 @@
       <div class="actions"><button id="saveGlossary">儲存詞彙表</button><button id="resetGlossary">恢復預設</button></div>
       <div id="fileTest" class="fileTest">
         <label>用音檔測試辨識（個人模式）<input id="testAudio" type="file" accept="audio/*"></label>
-        <p class="hint">選擇錄音檔後會直接交給語音辨識，不需要喇叭或麥克風，聲音也不會播出；以正常速度處理，30 分鐘的錄音約需 30 分鐘。完成後按「下載字幕」。需要桌面版 Chrome 133 以上，處理期間請保持此分頁開啟。</p>
+        <p class="hint">選擇錄音檔後會直接交給 Chrome 語音辨識（測試 Chrome 用，不使用 Whisper），不需要喇叭或麥克風，聲音也不會播出；以正常速度處理，30 分鐘的錄音約需 30 分鐘。完成後按「下載字幕」。需要桌面版 Chrome 133 以上，處理期間請保持此分頁開啟。</p>
         <p id="fileProgress" class="hint" role="status" hidden></p>
         <button id="diagnostics" class="compact" hidden>下載診斷紀錄</button>
       </div>
       <p class="hint">詞彙表儲存在這台瀏覽器。這是文字校正，並非模型訓練；相同字詞的項目僅用於整理專有名詞。</p>
     </details>
-    <footer>建議使用桌面版 Chrome，並在 HTTPS 網站允許麥克風。<br>瀏覽器可能把音訊交給語音服務處理，請事先取得參與者同意。字幕可能有誤，經文請以聖經為準。<br>手機鎖屏或將瀏覽器切至背景可能暫停收音；恢復後請確認收音與房間狀態。</footer>
+    <footer>建議使用桌面版 Chrome，並在 HTTPS 網站允許麥克風。<br>音訊會送到 Cloudflare Workers AI 或瀏覽器的語音服務辨識，本站不保存音訊；請事先取得參與者同意。字幕可能有誤，經文請以聖經為準。<br>手機鎖屏或將瀏覽器切至背景可能暫停收音；恢復後請確認收音與房間狀態。</footer>
   </main>
   <script type="module" src="/app.js"></script>
 </body>

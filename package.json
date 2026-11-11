@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "express": "^5.1.0",
+    "opencc-js": "^1.4.2",
     "qrcode": "^1.5.4",
     "ws": "^8.18.3"
   },
@@ -36,6 +37,12 @@
       },
       "CREATE_LIMIT": {
         "description": "建立房間的請求限流，避免大量建立房間。"
+      },
+      "SPEECH_LIMIT": {
+        "description": "Whisper 辨識的每日用量限制（每個 IP 每天最多 4 小時音訊），保護 Workers AI 免費額度。"
+      },
+      "AI": {
+        "description": "Workers AI：用 Whisper large-v3-turbo 把聚會語音轉成字幕（免費方案每天約 214 分鐘音訊）。"
       }
     }
   }

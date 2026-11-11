@@ -13,8 +13,13 @@
   "durable_objects": {
     "bindings": [
       {"name": "ROOMS", "class_name": "CaptionRoom"},
-      {"name": "CREATE_LIMIT", "class_name": "CreateLimit"}
+      {"name": "CREATE_LIMIT", "class_name": "CreateLimit"},
+      {"name": "SPEECH_LIMIT", "class_name": "SpeechLimit"}
     ]
   },
-  "migrations": [{"tag": "v1", "new_sqlite_classes": ["CaptionRoom", "CreateLimit"]}]
+  "ai": {"binding": "AI"},
+  "migrations": [
+    {"tag": "v1", "new_sqlite_classes": ["CaptionRoom", "CreateLimit"]},
+    {"tag": "v2", "new_sqlite_classes": ["SpeechLimit"]}
+  ]
 }
