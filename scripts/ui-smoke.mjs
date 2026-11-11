@@ -130,8 +130,17 @@ test('audio-file test keeps unfinished phrases across sessions and retries netwo
   }
   await expect(page.locator('#stop')).toBeEnabled();
   await expect(page.locator('#message')).toBeHidden();
+  await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('一段很長的辨識中文字還沒確定', false); window.__speech.emit('新', false); });
   await page.locator('#stop').click();
   await expect(page.locator('#fileProgress')).toBeHidden();
+  await expect(page.locator('#diagnostics')).toBeVisible();
+  const download = page.waitForEvent('download');
+  await page.locator('#diagnostics').click();
+  const path = await (await download).path();
+  const entries = (await import('node:fs')).readFileSync(path, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(entries[0].type, 'file');
+  const types = entries.map(entry => entry.type);
+  for (const type of ['start', 'result', 'end', 'error', 'interim-dropped']) assert.ok(types.includes(type), type);
 });
 
 test('audio-file test feeds the file to recognition as a track without the speakers and finishes by itself', async t => {
