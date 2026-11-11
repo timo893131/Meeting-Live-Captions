@@ -3,18 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f9fc">
+  <meta name="theme-color" content="#eaf4ff">
   <meta name="description" content="教會聚會的即時字幕：在自己的裝置顯示字幕，或建立房間把字幕分享給參與聚會的人。">
-  <title>聚會字幕（Meeting Live Captions）</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo+Mono:wght@400;500;800&display=swap">
+  <title>聚會字幕 · Meeting Live Captions</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header><a href="/" class="brand">聚會字幕</a><span>讓每一句話，都能被看見</span></header>
+  <header><a href="/" class="brand"><span aria-hidden="true">✦</span> 聚會字幕</a><span>讓每一句話，都能被看見</span></header>
   <main>
     <section class="intro">
+      <p class="eyebrow">MEETING LIVE CAPTIONS</p>
       <h1>一起聆聽，<br>一起看見。</h1>
       <p>清楚的字幕，安心的聚會。選擇自己的聆聽方式。</p>
     </section>
@@ -34,24 +32,24 @@
     </section>
     <section id="sharePanel" class="card" hidden>
       <div class="shareLayout">
-        <div><h2>你的廣播房間</h2><p>邀請大家一起看字幕。</p>
+        <div><p class="sectionLabel">你的廣播房間</p><h2>邀請大家一起看字幕</h2>
           <div class="roomDetails"><p>房間代碼<strong id="shareId"></strong></p><p>房間密碼<strong id="sharePassword"></strong></p></div>
           <p class="hint">掃描 QR Code 或開啟邀請連結即可加入。請只分享給參與聚會的人。</p>
           <div class="actions"><button id="copyLink">複製邀請連結</button><button id="closeRoom" class="danger">結束房間</button></div>
         </div>
-        <figure><img id="qr" width="180" height="180" alt="加入房間 QR Code" data-src="/api/qr"><figcaption>掃描加入聚會</figcaption></figure>
+        <figure><img id="qr" width="180" height="180" alt="加入房間 QR Code"><figcaption>掃描加入聚會</figcaption></figure>
       </div>
     </section>
     <section class="card captionCard" aria-labelledby="captionTitle">
-      <div class="captionHeader"><h2 id="captionTitle">即時字幕</h2><button id="focusView" aria-pressed="false">專注閱讀</button></div>
+      <div class="captionHeader"><div><p class="sectionLabel">LIVE CAPTIONS</p><h2 id="captionTitle">即時字幕</h2></div><button id="focusView" aria-pressed="false">專注閱讀</button></div>
       <div class="statusRow"><span id="status" class="badge" data-tone="neutral" role="status">個人模式</span><span id="micStatus" class="badge" data-tone="neutral" role="status">尚未收音</span><button id="reconnect" class="compact" hidden>重新連線</button></div>
       <div class="captionArea">
         <div id="captions" role="log" aria-label="確定字幕，可捲動閱讀" aria-live="polite" aria-relevant="additions" tabindex="0"><p class="placeholder">準備好了，按下「開始收音」。</p></div>
-        <button id="latest" class="latest" hidden>回到最新字幕</button>
+        <button id="latest" class="latest" hidden>回到最新字幕 ↓</button>
       </div>
       <div class="interimArea"><span id="interimLabel" class="sectionLabel" hidden>辨識中</span><p id="interim" aria-hidden="true"></p></div>
       <div class="toolbar">
-        <div class="actions"><button id="start" class="primary">開始收音</button><button id="stop" disabled>停止收音</button><button id="export" disabled>下載字幕</button></div>
+        <div class="actions"><button id="start" class="primary"><span aria-hidden="true">●</span> 開始收音</button><button id="stop" disabled>停止收音</button><button id="export" disabled>下載字幕</button></div>
         <label class="size" for="fontSize">字級 <input id="fontSize" type="range" min="20" max="56" value="30"><output id="fontValue" for="fontSize">30</output></label>
         <label id="wakeControl" class="check" hidden><input id="keepAwake" type="checkbox" checked> 保持螢幕亮起</label>
       </div>
