@@ -37,3 +37,5 @@ baseline／candidate 版本、具授權的固定資料 manifest、reference 來�
 回傳決策以 `scripts/apply-context-decisions.mjs` 驗證原始 ASR／規則／錄音 hash 與候選內容後匯入，只套用 accepted 的出現位置，保留原文和時間戳；見同份 context review 文件。即使所有提議已採用，也只是部分校正，不能把其他未核對片段標為 human_verified 或直接更新正式詞彙表。
 
 下一批資料先依 [獨立回測計畫](../../../evaluation/plans/church-vocabulary-pilot-20261019.json) 核對模型／規則／程式 hash，使用同一 raw ASR 比較唯一的文字候選變因；接入說明見 [下一批錄音](../../../docs/next-recording-batch.md)。初步門檻不是統計效力或生產驗收，無命中／零分母／缺標註時不可判改善。
+
+詞彙提示（hotwords）對照用 `scripts/compare_vocab_prompting.py`：含 neutral 繁體提示控制組，詞表須來自 leave-out 擷取並以固定規則選取；沒有人工 reference 時只輸出描述性指標與聽審表，不報 CER。見 [教會詞彙調適](../../../docs/church-vocabulary-adaptation.md)。

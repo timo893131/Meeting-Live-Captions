@@ -1,4 +1,5 @@
 import {defaultGlossary, parseGlossary, correctText} from '/glossary.js';
+import {DEFAULT_TERMS, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '/phonetic.js';
 
 const $ = id => document.getElementById(id);
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -9,6 +10,8 @@ let entries = [], following = true, unread = 0, busy = false, terminal = false;
 let generation = 0, retryCount = 0, reconnectTimer = null, handshakeTimer = null;
 let recognition = null, wantsAudio = false, speechGeneration = 0, restartTimer = null, shortEnds = 0;
 let micState = 'idle', wakeLock = null, wakePending = false;
+// Audio-file test: the file plays into a Web Audio stream (not the speakers) whose track is recognized.
+let fileSource = null;
 
 function message(text = '', kind = 'error') {
   $('message').textContent = text;
@@ -32,6 +35,7 @@ function updateUI() {
   $('settings').hidden = mode === 'viewer';
   $('start').hidden = $('stop').hidden = mode === 'viewer';
   $('micStatus').hidden = mode === 'viewer';
+  $('fileTest').hidden = mode !== 'personal';
   $('start').disabled = busy || wantsAudio || !SpeechRecognition || (mode === 'host' && roomState !== 'ready');
   $('stop').disabled = !wantsAudio;
   $('language').disabled = wantsAudio;
@@ -159,6 +163,11 @@ function sendCaption(text, final) {
 }
 function stopAudio({discard = false, error = false} = {}) {
   wantsAudio = false;
+  if (fileSource) {
+    const source = fileSource; fileSource = null;
+    source.audio.pause(); source.context.close().catch(() => {}); URL.revokeObjectURL(source.audio.src);
+    $('fileProgress').hidden = true; $('testAudio').value = '';
+  }
   clearTimeout(restartTimer);
   const old = recognition;
   if (discard) { speechGeneration++; recognition = null; }
@@ -175,6 +184,17 @@ const speechErrors = {
   network: '語音服務連線中斷。請確認網路，再按開始收音。',
   'language-not-supported': '語音服務不支援目前語言，請切換語言後再試。'
 };
+// Same-sound church-term correction: the pinyin data is loaded once, only when someone starts captioning.
+let pinyinLoading = null;
+function ensurePinyin() {
+  if (!$('phonetic').checked || pinyinReady() || pinyinLoading) return;
+  pinyinLoading = import('/pinyin-zh.js').then(loadPinyin).catch(() => { pinyinLoading = null; });
+}
+function correctCaption(text, glossary, terms) {
+  const exact = correctText(text, glossary);
+  return $('phonetic').checked ? phoneticCorrect(exact, terms).text : exact;
+}
+
 function beginRecognition(run) {
   if (!wantsAudio || run !== speechGeneration) return;
   if (mode === 'host' && roomState !== 'ready') { stopAudio({discard: true}); return; }
@@ -188,8 +208,9 @@ function beginRecognition(run) {
     if (!current()) return;
     let interim = '';
     const glossary = parseGlossary($('glossary').value);
+    const terms = [...DEFAULT_TERMS, ...parseTerms($('glossary').value)];
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i], text = correctText(result[0].transcript, glossary);
+      const result = event.results[i], text = correctCaption(result[0].transcript, glossary, terms);
       if (result.isFinal) {
         if (!completedResults.has(i)) { completedResults.add(i); sendCaption(text, true); }
       } else if (wantsAudio) interim += text;
@@ -214,8 +235,10 @@ function beginRecognition(run) {
     micState = 'restarting'; updateUI();
     restartTimer = setTimeout(() => beginRecognition(run), 500);
   };
-  try { rec.start(); } catch {
-    stopAudio({discard: true, error: true}); message('無法啟動語音辨識，請確認麥克風權限後再試。');
+  const usingFile = Boolean(fileSource);
+  try { usingFile ? rec.start(fileSource.track) : rec.start(); } catch {
+    stopAudio({discard: true, error: true});
+    message(usingFile ? '此 Chrome 版本無法辨識音檔，請更新到桌面版 Chrome 133 以上。' : '無法啟動語音辨識，請確認麥克風權限後再試。');
   }
 }
 function startAudio() {
@@ -225,7 +248,7 @@ function startAudio() {
   if (mode === 'host' && roomState !== 'ready') return message('房間尚未連線，請等待連線完成。');
   message(); wantsAudio = true; shortEnds = 0; micState = 'starting';
   const run = ++speechGeneration;
-  updateUI(); beginRecognition(run);
+  ensurePinyin(); updateUI(); beginRecognition(run);
 }
 
 function disconnect() {
@@ -357,6 +380,28 @@ async function syncWakeLock() {
 
 for (const id of ['personal', 'host', 'viewer']) $(id).onclick = () => selectMode(id);
 $('start').onclick = startAudio;
+
+const clock = seconds => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}` : '--:--';
+$('testAudio').onchange = async () => {
+  const file = $('testAudio').files[0];
+  if (!file) return;
+  if (mode !== 'personal') { $('testAudio').value = ''; return message('音檔測試只能在個人模式使用。'); }
+  if (wantsAudio || busy) { $('testAudio').value = ''; return message('請先停止收音，再選擇音檔。'); }
+  if (!SpeechRecognition) { $('testAudio').value = ''; return message('此瀏覽器不支援語音辨識，請使用桌面版 Chrome 133 以上。'); }
+  const audio = new Audio(URL.createObjectURL(file)), context = new AudioContext();
+  const output = context.createMediaStreamDestination();
+  context.createMediaElementSource(audio).connect(output);  // not connected to the speakers
+  audio.ontimeupdate = () => { $('fileProgress').textContent = `音檔辨識中：${clock(audio.currentTime)} / ${clock(audio.duration)}`; };
+  audio.onended = () => {
+    // Give the recognizer a moment to return the last final result.
+    setTimeout(() => { if (fileSource?.audio === audio) { stopAudio(); message('音檔辨識完成，可以按「下載字幕」。', 'success'); } }, 4000);
+  };
+  try { await context.resume(); await audio.play(); }
+  catch { context.close().catch(() => {}); $('testAudio').value = ''; return message('無法讀取這個音檔，請改用 mp3、m4a 或 wav。'); }
+  fileSource = {audio, context, track: output.stream.getAudioTracks()[0]};
+  $('fileProgress').hidden = false;
+  startAudio();
+};
 $('stop').onclick = () => stopAudio();
 $('reconnect').onclick = () => { retryCount = 0; terminal = false; connectRoom(); };
 $('joinForm').onsubmit = event => {
@@ -421,8 +466,15 @@ $('export').onclick = () => {
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = '聚會字幕.txt'; link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
 };
+$('phonetic').onchange = () => {
+  try { localStorage.setItem('phoneticCorrection', $('phonetic').checked ? 'on' : 'off'); } catch {}
+  if (wantsAudio) ensurePinyin();
+};
 let savedGlossary;
-try { savedGlossary = localStorage.getItem('churchGlossary'); applyFontSize(localStorage.getItem('captionFontSize')); } catch {}
+try {
+  savedGlossary = localStorage.getItem('churchGlossary'); applyFontSize(localStorage.getItem('captionFontSize'));
+  $('phonetic').checked = localStorage.getItem('phoneticCorrection') !== 'off';
+} catch {}
 $('glossary').value = savedGlossary ?? defaultGlossary.map(pair => pair.join('=')).join('\n');
 
 async function initialize() {

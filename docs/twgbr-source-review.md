@@ -71,3 +71,5 @@ python scripts/review_sources.py --config sources/twgbr-review.json --output dat
 3. 用途允許後再挑少量代表篇章，人工核對聲音／文字、分段、對齊，保留原文／原音及版本。
 4. 正確詞彙由來源與人工審查取得；常見誤識來自真實辨識結果，不憑空製造替換。加入一般中文負向案例，避免多義詞誤改。
 5. 先評估詞彙／提示是否足夠；若仍需 ASR 微調，再確認音訊權利、train／validation／sealed test、baseline、硬體及預算。
+
+2026-11-10 後續：已依使用者指示完成 132 頁全書文字擷取、詞彙候選擷取及 3 檔內部評估音訊對照，權利仍 pending、未訓練。見 [教會詞彙調適](church-vocabulary-adaptation.md)。

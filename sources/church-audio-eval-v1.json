@@ -1,0 +1,24 @@
+{
+  "phase": "internal_evaluation_sample_pending_rights",
+  "purpose": "internal_evaluation_pending_rights",
+  "note": "User-specified TWGBR scope; three Life-Study message 1 recordings (OT/NT/epistle) to test vocabulary prompting against provisional web text. Not a training set.",
+  "collection": "data/church-crawl/twgbr-text-v2",
+  "allowed_hosts": ["line.twgbr.org"],
+  "audio_urls": [
+    "https://line.twgbr.org/life-study/mp3/ot/Gen-001.mp3",
+    "https://line.twgbr.org/life-study/mp3/nt/John-001.mp3",
+    "https://line.twgbr.org/life-study/mp3/nt/Eph-001.mp3"
+  ],
+  "limits": {
+    "max_requests": 8,
+    "max_total_body_bytes": 41943040,
+    "max_file_bytes": 14000000,
+    "interval_seconds": 1,
+    "max_retries": 1,
+    "timeout_seconds": 60,
+    "max_wall_seconds": 600,
+    "max_redirects": 2
+  },
+  "rights_status": "pending",
+  "training_enabled": false
+}

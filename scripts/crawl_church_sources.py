@@ -13,6 +13,10 @@ from review_sources import PageReview
 from tw_speech_pilot import BoundedFetcher, atomic_json, now, preserve_bytes, sha256
 
 
+# Text-only pages under pending rights; audio is indexed but never downloaded here.
+MAX_PAGES = 200
+
+
 def eligible(url):
     parts = urllib.parse.urlsplit(url)
     return (parts.scheme == 'https' and parts.hostname == 'line.twgbr.org'
@@ -24,8 +28,9 @@ def eligible(url):
 def collect(root, config, fetcher):
     root = Path(root)
     if (config.get('training_enabled') is not False or config.get('download_audio') is not False
-            or config.get('rights_status') != 'pending' or not 1 <= config['limits']['max_pages'] <= 10):
-        raise ValueError('This crawler only supports at most 10 pending-rights pages and audio URLs')
+            or config.get('rights_status') != 'pending' or not 1 <= config['limits']['max_pages'] <= MAX_PAGES):
+        raise ValueError(f'This crawler only supports at most {MAX_PAGES} pending-rights text pages and audio URLs')
+    follow_links = config.get('follow_links', True)
     for name in ['raw', 'processed', 'manifests', 'text_only', 'review', 'reports']:
         (root/name).mkdir(parents=True, exist_ok=True)
     report = dict(started_at=now(), status='in_progress', pages_acquired=0, text_documents=0,
@@ -89,7 +94,7 @@ def collect(root, config, fetcher):
             pages.append(record)
             for media_url in record['audio_urls']:
                 audio_index.setdefault(media_url, []).append(url)
-            for link in record['links']:
+            for link in record['links'] if follow_links else []:
                 if eligible(link) and link not in visited and link not in queue:
                     queue.append(link)
             print(json.dumps(dict(event='page_collected', url=url, pages=len(pages),

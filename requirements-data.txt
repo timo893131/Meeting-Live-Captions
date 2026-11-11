@@ -3,3 +3,15 @@ soupsieve==3.0.3
 typing_extensions==4.16.0
 PyYAML==6.0.3
 pyarrow==21.0.0
+# Church vocabulary candidate review (extract_church_terms.py); general-frequency context only
+wordfreq==3.1.1
+jieba==0.42.1
+ftfy==6.3.1
+langcodes==3.5.1
+msgpack==1.2.4
+regex==2026.11.9
+wcwidth==0.9.4
+opencc-python-reimplemented==0.1.7
+locate==1.1.1
+# Sealed meeting evaluation (evaluate_meet.py)
+rapidfuzz==3.14.1
