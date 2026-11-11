@@ -53,6 +53,28 @@ def clean_reference(text):
     return '\n'.join(lines)
 
 
+HYMN_STANZA = re.compile(r'^\s*(?:[一二三四五六七八九十]+[\u3000 ]|（副）)')
+
+
+def without_hymn(text):
+    """Speech-only reference: drop a trailing hymn (numbered stanzas 「一　…」 or 「（副）」, at least two lines)
+    and everything after it. Returns the text unchanged when no hymn is found."""
+    lines = text.split('\n')
+    stanzas = [i for i, line in enumerate(lines) if HYMN_STANZA.match(line)]
+    if len(stanzas) < 2:
+        return text
+    return '\n'.join(lines[:stanzas[0]])
+
+
+def cut_after_reference_end(reference, hypothesis, tail=40):
+    """Drop recognized text after the point matching the reference's last chars (e.g. the sung hymn)."""
+    from rapidfuzz import fuzz
+    if len(reference) < tail or not hypothesis:
+        return hypothesis
+    match = fuzz.partial_ratio_alignment(reference[-tail:], hypothesis)
+    return hypothesis[:match.dest_end] if match and match.score >= 50 else hypothesis
+
+
 def without_parentheses(text):
     """Variant without parenthesized citations such as （約四24）, which speakers may not read aloud."""
     return re.sub(r'[（(][^（）()]{0,40}[）)]', '', text)
@@ -146,7 +168,10 @@ def score_variants(name, segments, reference_variants, spans_by_variant, convert
     for ref_name, reference in reference_variants.items():
         previous = None
         for variant, text in texts.items():
-            metrics, ok = score(reference, normalize(text, converter), spans_by_variant[ref_name])
+            hypothesis = normalize(text, converter)
+            if ref_name == 'speech_only':
+                hypothesis = cut_after_reference_end(reference, hypothesis)
+            metrics, ok = score(reference, hypothesis, spans_by_variant[ref_name])
             if previous is not None:
                 metrics['chars_fixed_vs_previous'] = sum(1 for a, b in zip(previous, ok) if b and not a)
                 metrics['chars_broken_vs_previous'] = sum(1 for a, b in zip(previous, ok) if a and not b)
@@ -306,6 +331,9 @@ def main():
     for pair in pairs:
         reference_text = clean_reference((meet/f'{pair}.txt').read_text(encoding='utf-8-sig'))
         references = {'full': normalize(reference_text), 'no_parentheses': normalize(without_parentheses(reference_text))}
+        speech = without_hymn(reference_text)
+        if speech != reference_text:  # sung hymn: also score the spoken part only (recognized hymn text not counted)
+            references['speech_only'] = normalize(speech)
         spans = {name: category_spans(text, terms, names) for name, text in references.items()}
         entry = dict(id=pair, audio_sha256=sha256_file(meet/f'{pair}.mp3'), reference_sha256=sha256_file(meet/f'{pair}.txt'),
                      reference_chars=len(references['full']), term_occurrences=len(spans['full']['church']),
@@ -376,6 +404,16 @@ def main():
     for (condition, variant), t in totals.items():
         rows.append(f"| {condition} | {variant} | {t['e']/t['r']:.2%} | {t['tc']}/{t['to']} | {t['nc']}/{t['no']} | "
                     f"{t['f'] if variant != 'raw' else '—'} | {t['b'] if variant != 'raw' else '—'} |")
+    speech_rows = []
+    for entry in report['pairs']:
+        for cond in entry['conditions']:
+            for key, m in cond['variants'].items():
+                if key.startswith('speech_only/'):
+                    speech_rows.append(f"| {entry['id']} | {cond['condition']} | {key.split('/')[1]} | {m['cer']:.2%} | "
+                                       f"{m['terms_correct']}/{m['term_occurrences']} | {m['names_correct']}/{m['name_occurrences']} |")
+    if speech_rows:
+        rows += ['', '只算講道（不含詩歌；唱歌被辨識出的文字不計）', '', '| 測試 | 條件 | 版本 | CER | 專名正確 | 人名地名正確 |',
+                 '| --- | --- | --- | --- | --- | --- |'] + speech_rows
     rows += ['', '錯誤分類（原始辨識，對照完整參考文字）', '',
              '| 測試 | 條件 | 替換 | 漏字 | 多字 | 長段漏字（≥20字） | 字幕延遲 中位數／P95 |', '| --- | --- | --- | --- | --- | --- | --- |']
     for entry in report['pairs']:
