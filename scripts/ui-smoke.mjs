@@ -8,7 +8,7 @@ before(async () => {
   const app = createApp(); server = app.server; wss = app.wss;
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   base = 'http://127.0.0.1:' + server.address().port;
-  browser = await chromium.launch({headless: true, ...(process.env.CHROMIUM_PATH ? {executablePath: process.env.CHROMIUM_PATH} : {})});
+  browser = await chromium.launch({headless: true, args: ['--autoplay-policy=no-user-gesture-required'], ...(process.env.CHROMIUM_PATH ? {executablePath: process.env.CHROMIUM_PATH} : {})});
 });
 after(async () => {
   await browser?.close();
@@ -30,7 +30,7 @@ async function fixture(t) {
     }}});
     window.SpeechRecognition = class {
       constructor() { window.__speech = this; window.__speechCount++; this.results = []; }
-      start() {}
+      start(track) { window.__startTrack = track ? {kind: track.kind, readyState: track.readyState} : null; }
       stop() { setTimeout(() => this.onend?.(), 0); }
       abort() { setTimeout(() => this.onend?.(), 0); }
       confirmStart() { this.onstart?.(); }
@@ -103,6 +103,26 @@ test('same-sound church-term correction applies to captions, follows the toggle 
   await expect(page.locator('#captions')).toContainText('生命毒精');
   await page.reload();
   await expect(page.locator('#phonetic')).not.toBeChecked();
+});
+
+test('audio-file test feeds the file to recognition as a track without the speakers and finishes by itself', async t => {
+  const {page} = await fixture(t);
+  await page.locator('#settings summary').click();
+  await expect(page.locator('#fileTest')).toBeVisible();
+  const rate = 16000, samples = rate, wav = Buffer.alloc(44 + samples*2);
+  wav.write('RIFF', 0); wav.writeUInt32LE(36 + samples*2, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(rate, 24); wav.writeUInt32LE(rate*2, 28);
+  wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(samples*2, 40);
+  await page.locator('#testAudio').setInputFiles({name: 'test.wav', mimeType: 'audio/wav', buffer: wav});
+  await page.waitForFunction(() => window.__startTrack);
+  assert.deepEqual(await page.evaluate(() => window.__startTrack), {kind: 'audio', readyState: 'live'});
+  await expect(page.locator('#fileProgress')).toBeVisible();
+  await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('音檔測試字幕'); });
+  await expect(page.locator('#captions')).toContainText('音檔測試字幕');
+  await expect(page.locator('#message')).toContainText('音檔辨識完成', {timeout: 10000});
+  await expect(page.locator('#stop')).toBeDisabled();
+  await expect(page.locator('#export')).toBeEnabled();
+  await expect(page.locator('#fileProgress')).toBeHidden();
 });
 
 test('reading history keeps scroll and focus; latest, font persistence and focus mode work', async t => {

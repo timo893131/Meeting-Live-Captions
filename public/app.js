@@ -10,6 +10,8 @@ let entries = [], following = true, unread = 0, busy = false, terminal = false;
 let generation = 0, retryCount = 0, reconnectTimer = null, handshakeTimer = null;
 let recognition = null, wantsAudio = false, speechGeneration = 0, restartTimer = null, shortEnds = 0;
 let micState = 'idle', wakeLock = null, wakePending = false;
+// Audio-file test: the file plays into a Web Audio stream (not the speakers) whose track is recognized.
+let fileSource = null;
 
 function message(text = '', kind = 'error') {
   $('message').textContent = text;
@@ -33,6 +35,7 @@ function updateUI() {
   $('settings').hidden = mode === 'viewer';
   $('start').hidden = $('stop').hidden = mode === 'viewer';
   $('micStatus').hidden = mode === 'viewer';
+  $('fileTest').hidden = mode !== 'personal';
   $('start').disabled = busy || wantsAudio || !SpeechRecognition || (mode === 'host' && roomState !== 'ready');
   $('stop').disabled = !wantsAudio;
   $('language').disabled = wantsAudio;
@@ -160,6 +163,11 @@ function sendCaption(text, final) {
 }
 function stopAudio({discard = false, error = false} = {}) {
   wantsAudio = false;
+  if (fileSource) {
+    const source = fileSource; fileSource = null;
+    source.audio.pause(); source.context.close().catch(() => {}); URL.revokeObjectURL(source.audio.src);
+    $('fileProgress').hidden = true; $('testAudio').value = '';
+  }
   clearTimeout(restartTimer);
   const old = recognition;
   if (discard) { speechGeneration++; recognition = null; }
@@ -227,8 +235,10 @@ function beginRecognition(run) {
     micState = 'restarting'; updateUI();
     restartTimer = setTimeout(() => beginRecognition(run), 500);
   };
-  try { rec.start(); } catch {
-    stopAudio({discard: true, error: true}); message('無法啟動語音辨識，請確認麥克風權限後再試。');
+  const usingFile = Boolean(fileSource);
+  try { usingFile ? rec.start(fileSource.track) : rec.start(); } catch {
+    stopAudio({discard: true, error: true});
+    message(usingFile ? '此 Chrome 版本無法辨識音檔，請更新到桌面版 Chrome 133 以上。' : '無法啟動語音辨識，請確認麥克風權限後再試。');
   }
 }
 function startAudio() {
@@ -370,6 +380,28 @@ async function syncWakeLock() {
 
 for (const id of ['personal', 'host', 'viewer']) $(id).onclick = () => selectMode(id);
 $('start').onclick = startAudio;
+
+const clock = seconds => Number.isFinite(seconds) ? `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}` : '--:--';
+$('testAudio').onchange = async () => {
+  const file = $('testAudio').files[0];
+  if (!file) return;
+  if (mode !== 'personal') { $('testAudio').value = ''; return message('音檔測試只能在個人模式使用。'); }
+  if (wantsAudio || busy) { $('testAudio').value = ''; return message('請先停止收音，再選擇音檔。'); }
+  if (!SpeechRecognition) { $('testAudio').value = ''; return message('此瀏覽器不支援語音辨識，請使用桌面版 Chrome 133 以上。'); }
+  const audio = new Audio(URL.createObjectURL(file)), context = new AudioContext();
+  const output = context.createMediaStreamDestination();
+  context.createMediaElementSource(audio).connect(output);  // not connected to the speakers
+  audio.ontimeupdate = () => { $('fileProgress').textContent = `音檔辨識中：${clock(audio.currentTime)} / ${clock(audio.duration)}`; };
+  audio.onended = () => {
+    // Give the recognizer a moment to return the last final result.
+    setTimeout(() => { if (fileSource?.audio === audio) { stopAudio(); message('音檔辨識完成，可以按「下載字幕」。', 'success'); } }, 4000);
+  };
+  try { await context.resume(); await audio.play(); }
+  catch { context.close().catch(() => {}); $('testAudio').value = ''; return message('無法讀取這個音檔，請改用 mp3、m4a 或 wav。'); }
+  fileSource = {audio, context, track: output.stream.getAudioTracks()[0]};
+  $('fileProgress').hidden = false;
+  startAudio();
+};
 $('stop').onclick = () => stopAudio();
 $('reconnect').onclick = () => { retryCount = 0; terminal = false; connectRoom(); };
 $('joinForm').onsubmit = event => {
