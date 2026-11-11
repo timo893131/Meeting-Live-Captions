@@ -124,7 +124,7 @@ function showLatest() {
 }
 function updateLatest() {
   $('latest').hidden = following || !entries.length;
-  $('latest').textContent = unread ? `回到最新字幕（${unread}）↓` : '回到最新字幕 ↓';
+  $('latest').textContent = unread ? `回到最新字幕（${unread}）` : '回到最新字幕';
 }
 function placeholder() {
   const p = document.createElement('p'); p.className = 'placeholder';
