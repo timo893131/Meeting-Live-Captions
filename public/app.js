@@ -223,8 +223,9 @@ const speechErrors = {
 // Same-sound church-term correction: the pinyin data is loaded once, only when someone starts captioning.
 let pinyinLoading = null;
 function ensurePinyin() {
-  if (!$('phonetic').checked || pinyinReady() || pinyinLoading) return;
-  pinyinLoading = import('/pinyin-zh.js').then(loadPinyin).catch(() => { pinyinLoading = null; });
+  if (!$('phonetic').checked || pinyinReady()) return Promise.resolve();
+  pinyinLoading ||= import('/pinyin-zh.js').then(loadPinyin).catch(() => { pinyinLoading = null; });
+  return pinyinLoading;
 }
 function correctCaption(text, glossary, terms) {
   const exact = correctText(text, glossary);
@@ -556,7 +557,8 @@ async function whisperFileTest(file) {
   samples = null;
   if (!chunks.length) return message('音檔裡沒有偵測到說話聲。');
   const total = chunks.reduce((n, c) => n + c.length, 0) / RATE;
-  message(); wantsAudio = true; micState = 'active'; ensurePinyin();
+  await ensurePinyin();  // the first answers arrive within seconds: correct them too
+  message(); wantsAudio = true; micState = 'active';
   const state = {failures: 0, preview: '', capture: null, discarded: false, noPreview: true, file: true};
   state.queue = createOrderedQueue(item => deliverWhisper(state, item));
   whisper = state; updateUI();
