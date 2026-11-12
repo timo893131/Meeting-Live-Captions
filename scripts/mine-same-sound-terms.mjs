@@ -16,6 +16,10 @@ import {readFileSync, readdirSync, statSync} from 'node:fs';
 import {join} from 'node:path';
 import * as pinyinData from '../public/pinyin-zh.js';
 import {DEFAULT_TERMS, loadPinyin, phoneticCorrect} from '../public/phonetic.js';
+import {Converter} from 'opencc-js/cn2t';
+
+// The website converts Whisper's text to Traditional (Taiwan) before correcting it; do the same here.
+const toTraditional = Converter({from: 'cn', to: 'tw'});
 
 const args = process.argv.slice(2);
 const option = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
@@ -71,13 +75,15 @@ function relevant(text, pool = byKey) {
 }
 const pairs = readdirSync(run).map(name => name.match(new RegExp(`^(\\d+)\\.${condition}\\.json$`))).filter(Boolean).map(m => m[1]);
 if (!pairs.length) throw new Error(`No NN.${condition}.json in ${run}`);
+const existingDoubtful = new Map();  // edits by terms already built in, where the message text lacks the term
 const stats = new Map(candidates.map(t => [t, {fixes: 0, doubtful: 0, blocked: 0, false_text: 0, heard: new Map()}]));
 for (const pair of pairs) {
   const reference = readFileSync(join(refs, `${pair}.txt`), 'utf8');
-  const segments = JSON.parse(readFileSync(join(run, `${pair}.${condition}.json`), 'utf8')).raw;
+  const segments = JSON.parse(readFileSync(join(run, `${pair}.${condition}.json`), 'utf8')).raw.map(s => toTraditional(s));
   for (const segment of segments) {
     const terms = [...DEFAULT_TERMS, ...relevant(segment)];
     for (const change of phoneticCorrect(segment, terms).changes) {
+      if (existing.has(change.to) && !reference.includes(change.to)) existingDoubtful.set(`${change.from}→${change.to}`, (existingDoubtful.get(`${change.from}→${change.to}`) || 0) + 1);
       const s = stats.get(change.to); if (!s) continue;
       reference.includes(change.to) ? s.fixes++ : s.doubtful++;
       s.heard.set(change.from, (s.heard.get(change.from) || 0) + 1);
@@ -110,4 +116,10 @@ for (const r of rows) {
   const advice = r.false_text ? '不加（會改錯正確文字）' : r.fixes >= 2 && r.doubtful * 4 <= r.fixes ? '加入'
     : r.blocked >= 2 && !r.fixes ? '需確認一般詞' : '觀察';
   console.log(`| ${r.term} | ${r.corpus} | ${r.fixes} | ${r.doubtful} | ${r.blocked} | ${r.false_text} | ${heard} | ${advice} |`);
+}
+const doubtful = [...existingDoubtful].sort((a, b) => b[1] - a[1]).slice(0, 30);
+if (doubtful.length) {
+  console.log('\n現有專名的存疑修改（該篇文字沒有這個詞；可能改錯，也可能是講員額外說的）\n');
+  console.log('| 修改 | 次數 |\n| --- | --- |');
+  for (const [edit, n] of doubtful) console.log(`| ${edit} | ${n} |`);
 }
