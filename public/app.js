@@ -1,4 +1,4 @@
-import {defaultGlossary, parseGlossary, correctText} from '/glossary.js';
+import {defaultGlossary, startingGlossary, parseGlossary, correctText} from '/glossary.js';
 import {DEFAULT_TERMS, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '/phonetic.js';
 import {BIBLE_BOOKS, CORE_TERMS, LIFE_STUDY_TERMS, BIBLE_NAMES} from '/church-terms.js';
 import {ALWAYS_CORRECTED} from '/always-corrected.js';
@@ -670,7 +670,7 @@ $('saveGlossary').onclick = () => {
   try { localStorage.setItem('churchGlossary', $('glossary').value); message('詞彙表已儲存。', 'success'); }
   catch { message('此瀏覽器無法儲存，詞彙表仍在本次使用期間生效。', 'info'); }
 };
-$('resetGlossary').onclick = () => { $('glossary').value = defaultGlossary.map(pair => pair.join('=')).join('\n'); message('已恢復預設詞彙，按「儲存詞彙表」後保留設定。', 'info'); };
+$('resetGlossary').onclick = () => { $('glossary').value = startingGlossary.map(pair => pair.join('=')).join('\n'); message('已清空詞彙表（預設為空），按「儲存詞彙表」後保留設定。', 'info'); };
 $('export').onclick = () => {
   const blob = new Blob([entries.map(entry => new Date(entry.time).toLocaleTimeString('zh-TW') + ' ' + entry.text).join('\n')], {type: 'text/plain;charset=utf-8'});
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = '聚會字幕.txt'; link.click();
@@ -702,7 +702,9 @@ try {
   $('phonetic').checked = localStorage.getItem('phoneticCorrection') !== 'off';
   if (localStorage.getItem('speechEngine') === 'chrome') $('engine').value = 'chrome';
 } catch {}
-$('glossary').value = savedGlossary ?? defaultGlossary.map(pair => pair.join('=')).join('\n');
+// A box saved unchanged with the earlier default pairs counts as never edited: it starts empty like everyone's.
+const oldDefault = defaultGlossary.map(pair => pair.join('=')).join('\n');
+$('glossary').value = savedGlossary == null || savedGlossary.trim() === oldDefault ? startingGlossary.map(pair => pair.join('=')).join('\n') : savedGlossary;
 
 async function checkServerSpeech() {
   try { serverSpeech = (await (await request('/api/health')).json()).transcribe === true; } catch { serverSpeech = false; }

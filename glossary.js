@@ -1,3 +1,7 @@
+// The website's glossary box starts EMPTY (owner's request, 2026-11-12): church terms are corrected by the built-in
+// same-sound list (public/church-terms.js), so the box only holds the host's own additions.
+export const startingGlossary = [];
+// Earlier default pairs, kept as the fixed baseline of the offline glossary evaluation (scripts/evaluate-glossary.mjs).
 export const defaultGlossary = [
   ['耶穌基度', '耶穌基督'], ['耶蘇', '耶穌'], ['基度', '基督'],
   ['聖零', '聖靈'], ['聖經經文', '聖經經文'], ['以馬內力', '以馬內利'],
