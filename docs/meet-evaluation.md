@@ -71,3 +71,14 @@ Cloudflare Workers AI `@cf/openai/whisper-large-v3-turbo`（條件 `cfvad10`、`
 | 停頓切段 ≤10 秒 | ＋聖經人名地名 | **12.59%** | 48/48 | **147/183** | 116／1 |
 
 結論：聖經人名地名讓人名正確率由約 42% 提升到約 80%，改壞 1 字。下一步在 MEET 上確認一次（驗收，不調整）。
+
+## 生命讀經開發集與擴充專名（進行中）
+
+`notebooks/life_study_terms.ipynb`（Colab T4）：`scripts/build_life_study_dev_set.py` 從各卷平均挑 16 篇生命讀經
+（不用第 1 篇、只用單一音檔的篇章），Whisper「停頓切段 ≤10 秒」辨識，`evaluate_meet.py --development --loose-reference`
+報告不需對齊的專名比對（生命讀經音訊是帶讀加講解，網頁文字不是逐字稿，CER 只供參考）；
+`scripts/mine-same-sound-terms.mjs` 從恢復本＋生命讀經正確文字的常用詞中，找出加入同音校正後能修好辨識錯字、
+且不改錯正確文字的候選詞。
+
+流程：候選表 → 人工挑選加入 `public/church-terms.js` → 重新產生讀音表 → 開發集確認「修好多、改壞 0」及正確文字誤改 0
+→ 最後才用 MEET 封存測試驗收一次（不依 MEET 調整）。結果：尚未執行。

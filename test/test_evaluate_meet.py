@@ -56,6 +56,36 @@ class ScoringTests(unittest.TestCase):
         hypothesis = reference + '唱歌被辨識成的許多文字唱歌被辨識成的許多文字'
         self.assertEqual(ev.cut_after_reference_end(reference, hypothesis), reference)
 
+    def test_bag_counts_do_not_need_alignment(self):
+        reference = ev.normalize('召會生活在以弗所書。神的經綸。召會')
+        spans = ev.category_spans(reference, ev.church_terms(), ev.bible_names())
+        hypothesis = ev.normalize('講員說了很多話：神的經綸、以弗所書、召會、召會、召會')
+        metrics, _ = ev.score(reference, hypothesis, spans)
+        # Text: 召會生活, 以弗所書, 經綸, 召會 (召會生活 is one longer term). Heard: all but 召會生活, 召會 three times.
+        self.assertEqual((metrics['term_occurrences'], metrics['terms_bag_found'], metrics['terms_bag_extra']), (4, 3, 2))
+
+    def test_life_study_dev_set_uses_single_audio_messages_and_skips_shared_books(self):
+        sys.path.insert(0, str(ROOT/'scripts'))
+        import build_life_study_dev_set as dev
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for n, messages in ((1, [1, 2, 3]), (10, [1, 2]), (40, [1, 2])):
+                name = dev.archive.folder(n)
+                (root/'life-study/text'/name).mkdir(parents=True); (root/'life-study/audio'/name).mkdir(parents=True)
+                for k in messages:
+                    (root/'life-study/text'/name/f'{k:03d}.txt').write_text(f'第{k}篇 召會', encoding='utf-8')
+                    (root/'life-study/audio'/name/f'{k:03d}.mp3').write_bytes(b'ID3' + bytes([k]))
+            (root/'life-study/audio'/dev.archive.folder(40)/'002-2.mp3').write_bytes(b'ID3')
+            found = dev.available(root)
+            self.assertEqual(found, {1: [1, 2, 3], 40: [1]})  # 10 shares 9's Life-Study; 40/002 has two parts
+            picks = dev.pick(found, 2)
+            self.assertEqual(picks[0][0], 1); self.assertNotEqual(picks[0][1], 1)
+            sys.argv = ['x', '--archive', str(root), '--output', str(root/'dev'), '--count', '2']
+            dev.main()
+            manifest = json.loads((root/'dev/manifest.json').read_text(encoding='utf-8'))
+            self.assertEqual([m['reference'] for m in manifest], ['not_verbatim', 'not_verbatim'])
+            self.assertTrue((root/'dev/01.mp3').exists() and (root/'dev/02.txt').exists())
+
     def test_live_corrections_are_applied_per_segment(self):
         out = ev.corrections(['我們讀以服所書', '耶蘇愛我'])
         self.assertEqual(out['phonetic'], ['我們讀以弗所書', '耶穌愛我'])
