@@ -155,8 +155,26 @@ def score(reference, hypothesis, spans):
                 long_deletion_runs=len(long_runs), long_deletion_chars=sum(long_runs),
                 reference_chars=len(reference), hypothesis_chars=len(hypothesis),
                 term_occurrences=len(spans['church']), terms_correct=correct,
+                **bag_counts(hypothesis, spans),
                 term_accuracy=round(correct/len(spans['church']), 4) if spans['church'] else None,
                 name_occurrences=len(spans['names']), names_correct=names_correct), ok
+
+
+def bag_counts(hypothesis, spans):
+    """Alignment-free term check for references that are not verbatim (e.g. a Life-Study message whose audio is
+    the speaker's own reading with remarks): per term, min(times in reference, times in hypothesis); extra =
+    times the hypothesis has a term beyond the reference (a hint of false corrections)."""
+    out = {}
+    for kind, prefix in (('church', 'terms'), ('names', 'names')):
+        wanted = {}
+        for _s, _e, term in spans[kind]:
+            wanted[term] = wanted.get(term, 0) + 1
+        found = {}
+        for _s, _e, term in term_spans(hypothesis, sorted(wanted, key=len, reverse=True)):
+            found[term] = found.get(term, 0) + 1
+        out[f'{prefix}_bag_found'] = sum(min(n, found.get(t, 0)) for t, n in wanted.items())
+        out[f'{prefix}_bag_extra'] = sum(max(0, found.get(t, 0) - n) for t, n in wanted.items())
+    return out
 
 
 def corrections(segments, glossary=None, term_set='all'):
@@ -376,6 +394,8 @@ def main():
     parser.add_argument('--reuse', action='append', default=[],
                         help='Earlier (possibly interrupted) run folder, may be given more than once (first match wins): '
                         'reuse its recognizer outputs, recognize only what is missing, and re-score everything')
+    parser.add_argument('--loose-reference', action='store_true',
+                        help='References are not verbatim (Life-Study): also report alignment-free term counts')
     parser.add_argument('--development', action='store_true', help='Development data (e.g. Bible readings), not a sealed test')
     parser.add_argument('--conditions', default='full,fixed15,vad15',
                         help='full (whole file), full_prompt (+Traditional prompt), fixed<N> / vad<N> (N-second live chunks), '
@@ -539,6 +559,20 @@ def main():
                      if 'caption_delay_seconds_median' in cond else '—')
             rows.append(f"| {entry['id']} | {cond['condition']} | {m['substitutions']} | {m['deletions']} | {m['insertions']} | "
                         f"{m['long_deletion_runs']} 段／{m['long_deletion_chars']} 字 | {delay} |")
+    if args.loose_reference:
+        bag = {}
+        for entry in report['pairs']:
+            for cond in entry['conditions']:
+                for key, m in cond['variants'].items():
+                    if key.startswith('full/'):
+                        t = bag.setdefault((cond['condition'], key.split('/')[1]), [0, 0, 0, 0, 0, 0])
+                        for i, k in enumerate(['terms_bag_found', 'term_occurrences', 'terms_bag_extra',
+                                               'names_bag_found', 'name_occurrences', 'names_bag_extra']):
+                            t[i] += m[k]
+        rows += ['', '專名比對（不需逐字對齊；參考文字不是逐字稿時以此為準，CER 僅供參考）', '',
+                 '| 條件 | 版本 | 教會專名找到 | 多出 | 人名地名找到 | 多出 |', '| --- | --- | --- | --- | --- | --- |']
+        for (condition, variant), t in bag.items():
+            rows.append(f'| {condition} | {variant} | {t[0]}/{t[1]} | {t[2]} | {t[3]}/{t[4]} | {t[5]} |')
     summary = '\n'.join(rows)
     (output/'summary.md').write_text(summary+'\n', encoding='utf-8')
     print('\n'+summary)
