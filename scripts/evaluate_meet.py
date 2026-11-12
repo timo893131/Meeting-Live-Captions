@@ -186,8 +186,11 @@ def corrections(segments, glossary=None, term_set='all'):
 
 
 def score_variants(name, segments, reference_variants, spans_by_variant, converter):
-    out = corrections(segments)
-    core = corrections(segments, term_set='core')
+    # As on the website (the Worker converts Whisper's text to Traditional first), corrections run on
+    # Traditional text; otherwise every Simplified character would count as a same-sound "fix".
+    traditional = [converter.convert(s) for s in segments]
+    out = corrections(traditional)
+    core = corrections(traditional, term_set='core')
     # Chain: raw → glossary → same-sound (books + church terms) → same-sound (+ Bible names).
     texts = {'raw': ''.join(segments), 'glossary': ''.join(out['glossary']),
              'phonetic_core': ''.join(core['phonetic']), 'phonetic': ''.join(out['phonetic'])}
@@ -450,7 +453,7 @@ def main():
         reference_text = clean_reference((meet/f'{pair}.txt').read_text(encoding='utf-8-sig'))
         references = {'full': normalize(reference_text), 'no_parentheses': normalize(without_parentheses(reference_text))}
         speech = without_hymn(reference_text)
-        if speech != reference_text:  # sung hymn: also score the spoken part only (recognized hymn text not counted)
+        if speech != reference_text and not args.loose_reference:  # sung hymn: also score the spoken part only (recognized hymn text not counted)
             references['speech_only'] = normalize(speech)
         spans = {name: category_spans(text, terms, names) for name, text in references.items()}
         entry = dict(id=pair, audio_sha256=sha256_file(meet/f'{pair}.mp3'), reference_sha256=sha256_file(meet/f'{pair}.txt'),
