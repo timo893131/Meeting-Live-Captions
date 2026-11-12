@@ -65,3 +65,13 @@ test('terms added from the Life-Study development set fix their errors without t
     assert.equal(phoneticCorrect(everyday).text, everyday, everyday);
   }
 });
+
+test('the always-corrected words shown in the settings match the rule used to build the table', async () => {
+  const {readFileSync} = await import('node:fs');
+  const {ALWAYS_CORRECTED} = await import('../public/always-corrected.js');
+  const source = readFileSync(new URL('../scripts/build-pinyin-table.py', import.meta.url), 'utf8');
+  const rule = [...source.match(/^MISSPELLINGS = \{([^}]*)\}/m)[1].matchAll(/'([^']+)'/g)].map(m => m[1]);
+  assert.deepEqual(Object.keys(ALWAYS_CORRECTED).sort(), rule.sort());
+  loadPinyin(data);
+  for (const [heard, term] of Object.entries(ALWAYS_CORRECTED)) assert.equal(phoneticCorrect(heard).text, term, heard);
+});

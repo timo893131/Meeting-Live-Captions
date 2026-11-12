@@ -64,6 +64,10 @@
       <label class="check"><input type="checkbox" id="phonetic" checked> 同音教會專名校正（例：以服所書→以弗所書、詔會→召會）</label>
       <p class="hint">讀音完全相同才會改，只處理書卷名與教會專名，不改一般用字。</p>
       <p class="hint">每行輸入「辨識結果=正確詞彙」做固定替換；只寫一個詞（不含「=」）會加入同音校正，例如講員或地名。依講員與聚會用語調整，校正後的字幕也會分享給房間內的人。</p>
+      <details id="builtinTerms" class="builtinTerms">
+        <summary>查看內建教會專名（自動校正，不必加入詞彙表）</summary>
+        <div id="builtinList"></div>
+      </details>
       <label>詞彙校正表<textarea id="glossary" rows="10" spellcheck="false"></textarea></label>
       <div class="actions"><button id="saveGlossary">儲存詞彙表</button><button id="resetGlossary">恢復預設</button></div>
       <div id="fileTest" class="fileTest">
