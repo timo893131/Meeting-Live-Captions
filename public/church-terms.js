@@ -12,9 +12,16 @@ export const BIBLE_BOOKS = ['創世記', '出埃及記', '利未記', '民數記
 export const CORE_TERMS = ['耶穌基督', '保羅', '亞伯拉罕', '耶路撒冷', '加利利', '哥林多', '經綸', '那靈', 
   '配搭', '擘餅', '禱告', '生命讀經', '恢復本', '召會', '召會生活', '介言', '申言', '申言者',
   '以馬內利', '哈利路亞', '新耶路撒冷', '三一神', '基督的身體'];
+// Added from the Life-Study development set (2026-11-12, scripts/mine-same-sound-terms.mjs): each fixed recognizer
+// errors there (神的經論→神的經綸, 西安山→錫安山, 定十字架→釘十字架…) and changed at most a few places in the whole
+// Recovery Version + Life-Study text. Chosen on development data only, never on the sealed MEET test. Left out after
+// checking everyday phrases: 神的國 (神的果子→神的國子), 美地 (每地方→美地方).
+export const LIFE_STUDY_TERMS = ['神的經綸', '神經綸', '神的形像', '神的管治', '錫安山', '爭戰', '豫表',
+  '釘十字架', '奧祕', '受膏者', '瑪代', '遮覆', '罩蓋', '成孕', '揀選', '細麻衣', '掠物', '迦勒底人', '哈巴谷',
+  '提摩太', '亞捫人'];
 import {BIBLE_NAMES} from './bible-names.js';
 export {BIBLE_NAMES};
 // Books + core church terms (the set evaluated first); DEFAULT_TERMS also includes Bible person/place names.
-export const CORE_DEFAULT_TERMS = [...new Set([...BIBLE_BOOKS, ...CORE_TERMS])];
+export const CORE_DEFAULT_TERMS = [...new Set([...BIBLE_BOOKS, ...CORE_TERMS, ...LIFE_STUDY_TERMS])];
 export const DEFAULT_TERMS = [...new Set([...CORE_DEFAULT_TERMS, ...BIBLE_NAMES])];
 

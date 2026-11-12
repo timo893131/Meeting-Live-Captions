@@ -78,6 +78,9 @@ def main():
         report = json.loads(Path(args.precision).read_text(encoding='utf-8'))
         dropped = sorted(n for n in names if report.get(n, {}).get('changes', 0) > args.max_false_edits)
         names -= set(dropped)
+    # Seen on the Life-Study development set: speakers say 非利士 with s for sh (菲利斯), which matched 腓力斯 (Felix,
+    # rare) and was rewritten wrongly; the Philistines are far more frequent.
+    names -= {'腓力斯'}
     names = sorted(names - set(books), key=lambda n: (-len(n), n))
     if dropped:
         print('dropped (edits correct text):', '、'.join(dropped))
