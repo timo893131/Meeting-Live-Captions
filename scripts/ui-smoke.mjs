@@ -75,7 +75,7 @@ test('microphone state waits for actual startup, deduplicates final results, and
   await expect(page.locator('#micStatus')).toHaveText('正在啟動麥克風');
   await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('耶蘇說阿門'); window.__speech.repeatFinal(); });
   await expect(page.locator('#captions p')).toHaveCount(1);
-  await expect(page.locator('#captions')).toContainText('耶穌說阿們');
+  await expect(page.locator('#captions')).toContainText('耶穌說阿門'  /* 阿門 is no longer rewritten: the glossary box starts empty */);
   await page.evaluate(() => { window.__oldSpeech = window.__speech; window.__speech.fail('not-allowed'); window.__oldSpeech.end(); });
   await expect(page.locator('#message')).toContainText('麥克風未獲允許');
   await expect(page.locator('#start')).toBeEnabled();
@@ -159,6 +159,16 @@ test('audio-file test with Whisper sends the file in pause-cut chunks and shows 
   assert.equal(calls, 3);
 });
 
+test('built-in church terms can be viewed in the settings, read-only', async t => {
+  const {page} = await fixture(t);
+  await page.locator('#settings > summary').click();
+  await page.locator('#builtinTerms > summary').click();
+  await expect(page.locator('.termGroup')).toHaveText([/^聖經書卷（66）$/, /^教會專名/, /^生命讀經常用專名/, /^一般詞一律校正/, /^聖經人名地名/]);
+  await expect(page.locator('#builtinList')).toContainText('神的經綸');
+  await expect(page.locator('#builtinList')).toContainText('西安→錫安');
+  await expect(page.locator('#glossary')).not.toHaveValue(/神的經綸/);  // the glossary box stays the host's own list
+});
+
 test('same-sound church-term correction applies to captions, follows the toggle and host-added terms', async t => {
   const {page} = await fixture(t);
   await expect(page.locator('#phonetic')).toBeChecked();
@@ -167,7 +177,7 @@ test('same-sound church-term correction applies to captions, follows the toggle 
   await page.waitForTimeout(300);
   await page.evaluate(() => window.__speech.emit('我們來讀以服所書，詔會生活'));
   await expect(page.locator('#captions')).toContainText('我們來讀以弗所書，召會生活');
-  await page.locator('#settings summary').click();
+  await page.locator('#settings > summary').click();
   await page.locator('#glossary').fill('王弟兄');
   await page.evaluate(() => window.__speech.emit('今天王第兄分享'));
   await expect(page.locator('#captions')).toContainText('今天王弟兄分享');
@@ -188,7 +198,7 @@ function silentWav(seconds) {
 
 test('audio-file test keeps unfinished phrases across sessions and retries network errors', async t => {
   const {page} = await fixture(t);
-  await page.locator('#settings summary').click();
+  await page.locator('#settings > summary').click();
   await page.locator('#testAudio').setInputFiles({name: 'long.wav', mimeType: 'audio/wav', buffer: silentWav(60)});
   await page.waitForFunction(() => window.__startTrack);
   await page.evaluate(() => { window.__speech.confirmStart(); window.__speech.emit('尚未確定的一句', false); });
@@ -222,7 +232,7 @@ test('audio-file test keeps unfinished phrases across sessions and retries netwo
 
 test('audio-file test restarts a stalled recognizer, keeps the phrase and rewinds to the last answer', async t => {
   const {page} = await fixture(t);
-  await page.locator('#settings summary').click();
+  await page.locator('#settings > summary').click();
   await page.locator('#testAudio').setInputFiles({name: 'stall.wav', mimeType: 'audio/wav', buffer: silentWav(60)});
   await page.waitForFunction(() => window.__startTrack);
   const count = await page.evaluate(() => window.__speechCount);
@@ -241,7 +251,7 @@ test('audio-file test restarts a stalled recognizer, keeps the phrase and rewind
 
 test('audio-file test feeds the file to recognition as a track without the speakers and finishes by itself', async t => {
   const {page} = await fixture(t);
-  await page.locator('#settings summary').click();
+  await page.locator('#settings > summary').click();
   await expect(page.locator('#fileTest')).toBeVisible();
   await page.locator('#testAudio').setInputFiles({name: 'test.wav', mimeType: 'audio/wav', buffer: silentWav(1)});
   await page.waitForFunction(() => window.__startTrack);
@@ -289,7 +299,9 @@ test('invite/password joins, reload recovery, transient disconnect and closure p
   await expect(viewer.locator('#message')).toContainText('房間或密碼錯誤');
   await viewer.locator('#password').fill(password); await viewer.locator('#joinButton').click();
   await expect(viewer.locator('#status')).toHaveText('房間已連線');
-  await start(host); await host.evaluate(() => window.__speech.emit('創世紀與耶蘇'));
+  // The glossary box starts empty: 創世紀/耶蘇 are fixed by the same-sound table, loaded when captioning starts.
+  await start(host); await host.evaluate(() => import('/pinyin-zh.js')); await host.waitForTimeout(100);
+  await host.evaluate(() => window.__speech.emit('創世紀與耶蘇'));
   await expect(viewer.locator('#captions')).toContainText('創世記與耶穌');
   await viewer.reload(); await expect(viewer.locator('#status')).toHaveText('房間已連線');
   await expect(viewer.locator('#captions')).toContainText('創世記與耶穌');

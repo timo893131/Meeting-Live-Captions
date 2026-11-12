@@ -104,3 +104,7 @@ footer { margin: 26px 0; font-size: 12px; }
   #focusView { padding: 10px 12px; font-size: 14px; }
 }
 @media (prefers-reduced-motion: reduce) { button { transition: none; } }
+.builtinTerms { margin: 12px 0; }
+.builtinTerms summary { font-weight: 600; font-size: 14px; }
+.termGroup { font-size: 14px; font-weight: 650; margin: 12px 0 0; }
+.termGroup + .hint { margin: 4px 0 0; }

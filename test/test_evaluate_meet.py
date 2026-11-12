@@ -89,7 +89,7 @@ class ScoringTests(unittest.TestCase):
     def test_live_corrections_are_applied_per_segment(self):
         out = ev.corrections(['我們讀以服所書', '耶蘇愛我'])
         self.assertEqual(out['phonetic'], ['我們讀以弗所書', '耶穌愛我'])
-        self.assertEqual(out['glossary'][1], '耶穌愛我')
+        self.assertEqual(out['glossary'][1], '耶蘇愛我')  # the website's glossary box starts empty
 
     def test_chrome_export_lines_drop_times(self):
         with tempfile.TemporaryDirectory() as folder:

@@ -1,5 +1,7 @@
-import {defaultGlossary, parseGlossary, correctText} from '/glossary.js';
+import {defaultGlossary, startingGlossary, parseGlossary, correctText} from '/glossary.js';
 import {DEFAULT_TERMS, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '/phonetic.js';
+import {BIBLE_BOOKS, CORE_TERMS, LIFE_STUDY_TERMS, BIBLE_NAMES} from '/church-terms.js';
+import {ALWAYS_CORRECTED} from '/always-corrected.js';
 import {RATE, createSegmenter, startMicrophoneChunks, encodeWav, createOrderedQueue} from '/speech-chunker.js';
 
 const $ = id => document.getElementById(id);
@@ -668,11 +670,26 @@ $('saveGlossary').onclick = () => {
   try { localStorage.setItem('churchGlossary', $('glossary').value); message('詞彙表已儲存。', 'success'); }
   catch { message('此瀏覽器無法儲存，詞彙表仍在本次使用期間生效。', 'info'); }
 };
-$('resetGlossary').onclick = () => { $('glossary').value = defaultGlossary.map(pair => pair.join('=')).join('\n'); message('已恢復預設詞彙，按「儲存詞彙表」後保留設定。', 'info'); };
+$('resetGlossary').onclick = () => { $('glossary').value = startingGlossary.map(pair => pair.join('=')).join('\n'); message('已清空詞彙表（預設為空），按「儲存詞彙表」後保留設定。', 'info'); };
 $('export').onclick = () => {
   const blob = new Blob([entries.map(entry => new Date(entry.time).toLocaleTimeString('zh-TW') + ' ' + entry.text).join('\n')], {type: 'text/plain;charset=utf-8'});
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = '聚會字幕.txt'; link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+};
+// Read-only list of the built-in same-sound terms (the glossary box holds only the host's own additions).
+$('builtinTerms').ontoggle = () => {
+  if (!$('builtinTerms').open || $('builtinList').childElementCount) return;
+  const groups = [
+    ['聖經書卷', BIBLE_BOOKS], ['教會專名', CORE_TERMS], ['生命讀經常用專名', LIFE_STUDY_TERMS],
+    ['一般詞一律校正', Object.entries(ALWAYS_CORRECTED).map(([heard, term]) => `${heard}→${term}`)],
+    ['聖經人名地名', BIBLE_NAMES]
+  ];
+  for (const [title, list] of groups) {
+    const heading = document.createElement('p'), body = document.createElement('p');
+    heading.className = 'termGroup'; heading.textContent = `${title}（${list.length}）`;
+    body.className = 'hint'; body.textContent = list.join('、');
+    $('builtinList').append(heading, body);
+  }
 };
 $('engine').onchange = () => { try { localStorage.setItem('speechEngine', $('engine').value); } catch {} updateUI(); };
 $('phonetic').onchange = () => {
@@ -685,7 +702,9 @@ try {
   $('phonetic').checked = localStorage.getItem('phoneticCorrection') !== 'off';
   if (localStorage.getItem('speechEngine') === 'chrome') $('engine').value = 'chrome';
 } catch {}
-$('glossary').value = savedGlossary ?? defaultGlossary.map(pair => pair.join('=')).join('\n');
+// A box saved unchanged with the earlier default pairs counts as never edited: it starts empty like everyone's.
+const oldDefault = defaultGlossary.map(pair => pair.join('=')).join('\n');
+$('glossary').value = savedGlossary == null || savedGlossary.trim() === oldDefault ? startingGlossary.map(pair => pair.join('=')).join('\n') : savedGlossary;
 
 async function checkServerSpeech() {
   try { serverSpeech = (await (await request('/api/health')).json()).transcribe === true; } catch { serverSpeech = false; }
