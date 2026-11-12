@@ -29,7 +29,9 @@ from pypinyin import Style, lazy_pinyin, pinyin
 OVERRIDES = {'約翰參書': 'yue1 han4 san1 shu1', '擘餅': 'bo4 bing3'}
 # Dictionary words that sound like a term but, in church meetings, are misrecognitions of it: always corrected.
 # 照會/真言/腈綸/伸延 confirmed by the project owner (2026-11-10); 戒嚴 stays protected.
-MISSPELLINGS = {'創世紀', '照會', '真言', '腈綸', '伸延'}  # not 路德: Life-Study uses it for Luther
+# 征戰/奧秘/意象/西安/工藝/實話 confirmed by the owner (2026-11-12) from the Life-Study development set: in meetings
+# they are 爭戰/奧祕/異象/錫安/公義/實化 (the owner accepted that 說實話 then reads 說實化).
+MISSPELLINGS = {'創世紀', '照會', '真言', '腈綸', '伸延', '征戰', '奧秘', '意象', '西安', '工藝', '實話'}  # not 路德: Life-Study uses it for Luther
 PROTECT_MIN_FREQ = 20
 BOUNDARY_MIN_FREQ = 20
 
