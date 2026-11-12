@@ -18,7 +18,7 @@ export const CORE_TERMS = ['耶穌基督', '保羅', '亞伯拉罕', '耶路撒�
 // checking everyday phrases: 神的國 (神的果子→神的國子), 美地 (每地方→美地方).
 export const LIFE_STUDY_TERMS = ['神的經綸', '神經綸', '神的形像', '神的管治', '錫安山', '爭戰', '豫表',
   '釘十字架', '奧祕', '受膏者', '瑪代', '遮覆', '罩蓋', '成孕', '揀選', '細麻衣', '掠物', '迦勒底人', '哈巴谷',
-  '提摩太', '亞捫人'];
+  '提摩太', '亞捫人', '異象', '錫安', '公義', '實化'];
 import {BIBLE_NAMES} from './bible-names.js';
 export {BIBLE_NAMES};
 // Books + core church terms (the set evaluated first); DEFAULT_TERMS also includes Bible person/place names.

@@ -57,7 +57,11 @@ test('terms added from the Life-Study development set fix their errors without t
   const fixed = {'神的經論': '神的經綸', '神經倫的目標': '神經綸的目標', '西安山': '錫安山', '主被定十字架': '主被釘十字架',
     '受高者': '受膏者', '加勒底人': '迦勒底人', '提摩泰': '提摩太', '神的形象': '神的形像', '神的管制': '神的管治'};
   for (const [heard, expected] of Object.entries(fixed)) assert.equal(phoneticCorrect(heard).text, expected, heard);
-  for (const everyday of ['神的果子', '每地方都有', '說實話', '征戰', '奧秘', '他說菲利斯人']) {
+  // Words the owner confirmed as misrecognitions in meetings (2026-11-12), corrected although they are words.
+  const confirmed = {'屬靈的征戰': '屬靈的爭戰', '神的奧秘': '神的奧祕', '看見意象': '看見異象', '到西安': '到錫安',
+    '神的工藝': '神的公義', '基督實話在那靈裡': '基督實化在那靈裡'};
+  for (const [heard, expected] of Object.entries(confirmed)) assert.equal(phoneticCorrect(heard).text, expected, heard);
+  for (const everyday of ['神的果子', '每地方都有', '他說菲利斯人', '意向', '公益', '石化', '實際']) {
     assert.equal(phoneticCorrect(everyday).text, everyday, everyday);
   }
 });
