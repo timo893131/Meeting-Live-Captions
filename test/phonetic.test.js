@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as data from '../public/pinyin-zh.js';
-import {DEFAULT_TERMS, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '../public/phonetic.js';
+import {DEFAULT_TERMS, loadPinyin, parseTerms, phoneticCorrect, pinyinReady, soundsNear} from '../public/phonetic.js';
 
 test('unchanged until the pinyin data is loaded', () => {
   if (!pinyinReady()) assert.equal(phoneticCorrect('以服所書').text, '以服所書');
@@ -74,4 +74,24 @@ test('the always-corrected words shown in the settings match the rule used to bu
   assert.deepEqual(Object.keys(ALWAYS_CORRECTED).sort(), rule.sort());
   loadPinyin(data);
   for (const [heard, term] of Object.entries(ALWAYS_CORRECTED)) assert.equal(phoneticCorrect(heard).text, term, heard);
+});
+
+test('near sounds (candidate rule, off by default): tone and Taiwan mergers, never inside everyday words', () => {
+  loadPinyin(data);
+  const near = text => phoneticCorrect(text, DEFAULT_TERMS, {near: true}).text;
+  // Off by default: the website's behaviour is unchanged.
+  assert.equal(phoneticCorrect('在招會中多年').text, '在招會中多年');
+  assert.equal(near('在招會中多年'), '在召會中多年');                 // tone only
+  assert.equal(near('神新約的經論裡'), '神新約的經綸裡');
+  assert.equal(near('他是聲言者'), '他是申言者');                     // eng/en
+  assert.equal(near('孫子伯薩撒在宮中'), '孫子伯沙撒在宮中');         // s/sh
+  assert.equal(near('他們生出了摩亞人'), '他們生出了摩押人');
+  // Not when the changed char is part of an everyday word, or fewer chars are identical than changed.
+  for (const text of ['簡單來說祭祀的職任', '包羅萬有的基督', '實際上我們', '在西奈山上', '能夠生養眾多', '被折服', '他們要得到公益的報應']) {
+    assert.equal(near(text), text, text);
+  }
+  assert.equal(soundsNear('shen1', 'sheng4'), true);
+  assert.equal(soundsNear('sa4', 'sha1'), true);
+  assert.equal(soundsNear('zhe4', 'lu4'), false);
+  assert.equal(soundsNear(undefined, 'lu4'), false);
 });

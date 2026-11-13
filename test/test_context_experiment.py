@@ -116,5 +116,21 @@ class NotebookTests(unittest.TestCase):
         self.assertNotRegex(source, r'CF_API_TOKEN\s*=\s*[\'"]')   # the token only comes from Colab secrets
 
 
+    def test_near_sound_notebook_is_pinned_unexecuted_and_guards_meet(self):
+        import ast
+        notebook = json.loads((ROOT/'notebooks/phonetic_near_check.ipynb').read_text(encoding='utf-8'))
+        source = ''
+        for cell in notebook['cells']:
+            if cell['cell_type'] == 'code':
+                text = ''.join(cell['source'])
+                ast.parse(text)
+                self.assertIsNone(cell['execution_count']); self.assertEqual(cell['outputs'], [])
+                source += text
+        self.assertRegex(source, r"COMMIT = '[0-9a-f]{40}'")
+        self.assertIn('if not CONFIRM_MEET', source)
+        self.assertIn('--phonetic-near', source)
+        self.assertNotIn('--model-dir', source)   # re-scoring only: no recognition, no Cloudflare
+
+
 if __name__ == '__main__':
     unittest.main()

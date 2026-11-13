@@ -108,3 +108,18 @@ MEET 驗收（2026-11-12，run 20261112-025605，沿用既有辨識結果只重�
 ## 上下文校正實驗（2026-11-13 試跑未通過）
 
 設計、結果見 [context-correction-experiment.md](context-correction-experiment.md)。生命讀經試跑未通過門檻，MEET 沒有執行。
+
+## 同音校正放寬：聲調／台灣混音（候選規則，尚未上線）
+
+`phoneticCorrect(text, terms, {near: true})`：另外接受聲調不同或台灣華語混音（zh/z、ch/c、sh/s、n/l、f/h、r/l、eng/en、ing/in、ang/an）的專名，
+條件是改動的字不在一般詞語裡（jieba 詞表），且與專名完全相同的字至少和改動的字一樣多。網站預設不開。來由：上下文校正試跑中，
+語言模型提出的合理修改全是這一類（見 [context-correction-experiment.md](context-correction-experiment.md)）。
+
+量測：`notebooks/phonetic_near_check.ipynb`（CPU、不用額度）沿用既有辨識結果，`evaluate_meet.py --phonetic-near` 加算 `phonetic_near` 版本
+（修好／改壞字數對照 `phonetic`，即網站現況）；`term-precision.mjs --near` 在恢復本＋生命讀經正確全文上列出新規則多改的地方。
+
+門檻（沿用前例）：開發集專名找到增加、多出增加 ≤2、改壞 ≤ 修好/5；正確全文多改的地方逐一檢視，必要時加保護詞後重跑開發集；
+通過後才用 MEET 驗收一次（專名正確增加、CER 不變差 >0.1 個百分點）。
+
+試跑 4 篇（Workers AI 字幕，離線檢查，無參考文字計分）：新規則多改 10 處，人工看都合理（招會→召會 ×7、經論→經綸、聲言者→申言者、伯薩撒→伯沙撒、摩亞→摩押）；
+加入「相同字數」條件前出現的 生養→申言、折服→遮覆 已被擋下。

@@ -177,15 +177,16 @@ def bag_counts(hypothesis, spans):
     return out
 
 
-def corrections(segments, glossary=None, term_set='all'):
-    payload = json.dumps(dict(segments=segments, term_set=term_set, **({'glossary': glossary} if glossary is not None else {})))
+def corrections(segments, glossary=None, term_set='all', near=False):
+    payload = json.dumps(dict(segments=segments, term_set=term_set, near=near,
+                              **({'glossary': glossary} if glossary is not None else {})))
     # NODE_BINARY lets Colab use a pinned Node from the nodejs-wheel-binaries package.
     result = subprocess.run([os.environ.get('NODE_BINARY', 'node'), str(ROOT/'scripts/apply-corrections.mjs')], input=payload, text=True,
                             capture_output=True, check=True)
     return json.loads(result.stdout)
 
 
-def score_variants(name, segments, reference_variants, spans_by_variant, converter):
+def score_variants(name, segments, reference_variants, spans_by_variant, converter, near=False):
     # As on the website (the Worker converts Whisper's text to Traditional first), corrections run on
     # Traditional text; otherwise every Simplified character would count as a same-sound "fix".
     traditional = [converter.convert(s) for s in segments]
@@ -194,6 +195,8 @@ def score_variants(name, segments, reference_variants, spans_by_variant, convert
     # Chain: raw → glossary → same-sound (books + church terms) → same-sound (+ Bible names).
     texts = {'raw': ''.join(segments), 'glossary': ''.join(out['glossary']),
              'phonetic_core': ''.join(core['phonetic']), 'phonetic': ''.join(out['phonetic'])}
+    if near:  # candidate rule: near sounds (tone, Taiwan mergers); compared with 'phonetic' (the website today)
+        texts['phonetic_near'] = ''.join(corrections(traditional, near=True)['phonetic'])
     result = dict(condition=name, segments=len(segments),
                   phonetic_changes=sum(len(c) for c in out['changes']), variants={})
     for ref_name, reference in reference_variants.items():
@@ -400,6 +403,8 @@ def main():
     parser.add_argument('--loose-reference', action='store_true',
                         help='References are not verbatim (Life-Study): also report alignment-free term counts')
     parser.add_argument('--development', action='store_true', help='Development data (e.g. Bible readings), not a sealed test')
+    parser.add_argument('--phonetic-near', action='store_true',
+                        help='Also score the candidate same-sound rule with near sounds (variant phonetic_near, vs phonetic)')
     parser.add_argument('--conditions', default='full,fixed15,vad15',
                         help='full (whole file), full_prompt (+Traditional prompt), fixed<N> / vad<N> (N-second live chunks), '
                         'cfvad<N> / cffixed<N> (the same chunks through Cloudflare Workers AI)')
@@ -445,6 +450,7 @@ def main():
     report = dict(created_at=datetime.now(timezone.utc).isoformat(timespec='seconds'), sealed_test=not args.development,
                   model=args.model_label, model_bin_sha256=sha256_file(Path(args.model_dir)/'model.bin') if args.model_dir else None,
                   normalizer='NFC + OpenCC s2tw (hypothesis) + keep CJK/Latin/digits, lowercase',
+                  phonetic_near=args.phonetic_near,
                   code_files={p: sha256_file(ROOT/p) for p in ['glossary.js', 'public/phonetic.js', 'public/church-terms.js',
                                                               'public/pinyin-zh.js', 'scripts/evaluate_meet.py']},
                   workers_ai_model=CF_MODEL if 'cf' in args.conditions else None,
@@ -496,7 +502,7 @@ def main():
                         raise SystemExit(3)
                 else:
                     raise SystemExit(f'Unknown condition: {condition}')
-                result, out = score_variants(name, texts, references, spans, converter)
+                result, out = score_variants(name, texts, references, spans, converter, near=args.phonetic_near)
                 result.update(timing, prompt=prompt)
                 if reused:
                     result['reused_from'] = str(cached.parent)
@@ -513,7 +519,7 @@ def main():
         chrome = meet/f'{pair}.chrome.txt'
         if chrome.exists():
             texts = chrome_segments(chrome)
-            result, out = score_variants('chrome_export', texts, references, spans, converter)
+            result, out = score_variants('chrome_export', texts, references, spans, converter, near=args.phonetic_near)
             result['source_sha256'] = sha256_file(chrome)
             entry['conditions'].append(result)
             (output/f'{pair}.chrome_export.json').write_text(json.dumps(dict(raw=texts, **out), ensure_ascii=False, indent=1), encoding='utf-8')
