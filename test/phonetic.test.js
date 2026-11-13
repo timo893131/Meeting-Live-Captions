@@ -87,7 +87,11 @@ test('near sounds (candidate rule, off by default): tone and Taiwan mergers, nev
   assert.equal(near('孫子伯薩撒在宮中'), '孫子伯沙撒在宮中');         // s/sh
   assert.equal(near('他們生出了摩亞人'), '他們生出了摩押人');
   // Not when the changed char is part of an everyday word, or fewer chars are identical than changed.
-  for (const text of ['簡單來說祭祀的職任', '包羅萬有的基督', '實際上我們', '在西奈山上', '能夠生養眾多', '被折服', '他們要得到公益的報應']) {
+  for (const text of ['簡單來說祭祀的職任', '包羅萬有的基督', '實際上我們', '在西奈山上', '能夠生養眾多', '被折服', '他們要得到公益的報應',
+    '終我們要看到雅閣和', // 雅各 or 雅歌: two terms fit equally, so neither
+    '子民及列國的救恩',   // 列國 is an everyday word across the window boundary
+    '這個亞拉伯人']) {    // NEAR_PROTECT
+
     assert.equal(near(text), text, text);
   }
   assert.equal(soundsNear('shen1', 'sheng4'), true);
