@@ -91,6 +91,10 @@ class ScoringTests(unittest.TestCase):
         self.assertEqual(out['phonetic'], ['我們讀以弗所書', '耶穌愛我'])
         self.assertEqual(out['glossary'][1], '耶蘇愛我')  # the website's glossary box starts empty
 
+    def test_near_sound_candidate_rule_is_opt_in(self):
+        self.assertEqual(ev.corrections(['在招會中'])['phonetic'], ['在招會中'])
+        self.assertEqual(ev.corrections(['在招會中'], near=True)['phonetic'], ['在召會中'])
+
     def test_chrome_export_lines_drop_times(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder)/'01.chrome.txt'

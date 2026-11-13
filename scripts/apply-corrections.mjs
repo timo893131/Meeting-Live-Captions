@@ -1,6 +1,6 @@
 // Apply the live caption corrections (exact glossary, then same-sound church terms) to recognized segments,
 // exactly as public/app.js does for each caption. Input/output JSON on stdin/stdout:
-//   in:  {"segments": ["text", ...], "glossary": "optional textarea content", "term_set": "all"|"core"}
+//   in:  {"segments": ["text", ...], "glossary": "optional textarea content", "term_set": "all"|"core", "near": false}
 //   out: {"glossary": [...], "phonetic": [...], "changes": [[{from,to,index}], ...]}
 import {readFileSync} from 'node:fs';
 import {startingGlossary, parseGlossary, correctText} from '../glossary.js';
@@ -17,7 +17,7 @@ const pairs = parseGlossary(textarea), terms = [...base, ...parseTerms(textarea)
 loadPinyin(pinyinData);
 const glossary = [], phonetic = [], changes = [];
 for (const segment of input.segments) {
-  const exact = correctText(segment, pairs), result = phoneticCorrect(exact, terms);
+  const exact = correctText(segment, pairs), result = phoneticCorrect(exact, terms, {near: input.near === true});
   glossary.push(exact); phonetic.push(result.text); changes.push(result.changes);
 }
 process.stdout.write(JSON.stringify({glossary, phonetic, changes, terms}));
