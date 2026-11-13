@@ -64,7 +64,7 @@ Colab 筆記本以 `COMMIT = '<sha>'` 釘住程式版本；改評估程式後要
 ## 下一步（建議順序，等使用者決定）
 
 1. **收音**：現場改用混音器直接接線（最便宜、效果最大）。
-2. **上下文校正實驗**（進行中，見 [context-correction-experiment.md](context-correction-experiment.md)）：四條件（網站／A Whisper 提示／B 語言模型只改錯字＋安全檢查／A＋B），筆記本 `notebooks/context_correction_experiment.ipynb`。使用者已同意每次上限 6,000 neurons 與門檻。順序：生命讀經試跑（4 篇×2 模型）→ 選定模型 → 16 篇 → 通過才跑 MEET 一次 → 使用者決定是否上線（字幕先顯示、幾秒後替換）。
+2. **上下文校正實驗**（2026-11-13 試跑完成，**未通過**，見 [context-correction-experiment.md](context-correction-experiment.md)）：Whisper 提示使專名變少；Gemma 4 回覆全空；Qwen3 便宜快速但照單接受錯誤提示，改壞多於修好。建議改測「同音校正放寬聲調／台灣混音、但不拆一般詞」（零額度），等使用者決定。
 3. （已併入第 2 項的條件 A）
 4. **微調暫不做**：Workers AI 不能放自訂 Whisper（要自費 GPU 或瀏覽器端模型）；沒有授權的逐字訓練資料。若要準備：聚會字幕下載後請同工對照錄音修正（取得講員同意即為自有逐字稿）；向臺灣福音書房詢問訓練授權。
 5. 擴充專名：用 Drive 上未用過的生命讀經篇章再建一批開發資料跑 `life_study_terms.ipynb`。

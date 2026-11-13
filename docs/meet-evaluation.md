@@ -105,6 +105,6 @@ MEET 驗收（2026-11-12，run 20261112-025605，沿用既有辨識結果只重�
 可能來自使用者接受的一般詞校正，依封存規則不逐句檢視）。固定替換表（glossary）改為在繁體文字上執行後也有少量改壞（約 5 字，
 如 阿門→阿們 這類寫法差異）。結論：通過，上線。
 
-## 上下文校正實驗（進行中）
+## 上下文校正實驗（2026-11-13 試跑未通過）
 
-設計、門檻與執行方式見 [context-correction-experiment.md](context-correction-experiment.md)；MEET 只在生命讀經開發集通過後驗收一次。
+設計、結果見 [context-correction-experiment.md](context-correction-experiment.md)。生命讀經試跑未通過門檻，MEET 沒有執行。
