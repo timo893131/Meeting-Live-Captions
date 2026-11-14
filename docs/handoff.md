@@ -64,7 +64,7 @@ Colab 筆記本以 `COMMIT = '<sha>'` 釘住程式版本；改評估程式後要
 ## 下一步（建議順序，等使用者決定）
 
 1. **收音**：現場改用混音器直接接線（最便宜、效果最大）。
-2. **上下文校正實驗**（2026-11-13 試跑完成，**未通過**，見 [context-correction-experiment.md](context-correction-experiment.md)）：Whisper 提示使專名變少；Gemma 4 回覆全空；Qwen3 便宜快速但照單接受錯誤提示，改壞多於修好。接著做「同音校正放寬聲調／台灣混音、但不拆一般詞」（`{near: true}`，預設關閉；`notebooks/phonetic_near_check.ipynb`，見 meet-evaluation.md），開發集第 1 輪未通過（亞拉伯→亞拿伯等），已調整為第 2 輪，等使用者在 Colab 重跑開發集與正確全文誤改檢查。
+2. **上下文校正實驗**（2026-11-13 試跑完成，**未通過**，見 [context-correction-experiment.md](context-correction-experiment.md)）：Whisper 提示使專名變少；Gemma 4 回覆全空；Qwen3 便宜快速但照單接受錯誤提示，改壞多於修好。接著做「同音校正放寬聲調／台灣混音、但不拆一般詞」（`{near: true}`，預設關閉；`notebooks/phonetic_near_check.ipynb`，見 meet-evaluation.md），第 1、2 輪未通過（人名地名放寬後誤改多），第 3 輪只對書卷與教會用語放寬（排除 `NEAR_SKIP`），等使用者在 Colab 重跑開發集與正確全文誤改檢查。
 3. （已併入第 2 項的條件 A）
 4. **微調暫不做**：Workers AI 不能放自訂 Whisper（要自費 GPU 或瀏覽器端模型）；沒有授權的逐字訓練資料。若要準備：聚會字幕下載後請同工對照錄音修正（取得講員同意即為自有逐字稿）；向臺灣福音書房詢問訓練授權。
 5. 擴充專名：用 Drive 上未用過的生命讀經篇章再建一批開發資料跑 `life_study_terms.ipynb`。

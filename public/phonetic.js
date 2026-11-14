@@ -1,7 +1,7 @@
 // Same-sound church-term correction for recognized captions (runs in the browser; no server, no model).
 // A window of the caption is replaced by a term only when every heard character's most common toned pinyin
 // matches the term's reading (terms of 3+ chars allow one char that differs only in tone)
-// (option near: any number of chars may differ in tone or by a Taiwan Mandarin merger such as sh/s, eng/en, n/l,
+// (option near, books and church terms only: any number of chars may differ in tone or by a Taiwan Mandarin merger such as sh/s, eng/en, n/l,
 // as long as at least as many chars are already identical and no such char lies inside an everyday word of the
 // caption (nor at its edge, nor in NEAR_PROTECT), and no other term of the same length fits equally:
 // 招會 → 召會, 聲言者 → 申言者, but not 生養 → 申言, 祭司的 → 路司得, 亞拉伯 → 亞拿伯 or 雅閣 → 雅各／雅歌)
@@ -15,6 +15,11 @@ const MIN_LENGTH = 2;
 // Real words that a near-sound match would break but the word list lacks (only the near option uses them).
 // Add words found in the development set or in correct text (term-precision.mjs --near), never from MEET.
 export const NEAR_PROTECT = ['亞拉伯'];
+// The near option only applies to books and church terms (CORE_DEFAULT_TERMS), never to Bible person/place names
+// (in the correct Recovery Version + Life-Study text they caused about 400 false edits: 約二→約珥, 撒迦利雅→撒迦利亞,
+// 約雅斤→約雅敬), and not to the church terms that caused ≥5 false edits each there (聖言→申言, 那領→那靈, 四篇→詩篇…).
+export const NEAR_SKIP = ['申言', '那靈', '詩篇', '神的形像', '遮覆', '耶穌', '配搭'];
+const NEAR_TERMS = new Set(CORE_DEFAULT_TERMS.filter(term => !NEAR_SKIP.includes(term)));
 let readings = null;
 
 /** Load the generated data ({PINYIN, TERMS, COMMON, PROTECT} from pinyin-zh.js). */
@@ -129,7 +134,7 @@ export function phoneticCorrect(text, terms = DEFAULT_TERMS, {near = false} = {}
     }
     const accepted = termReadings(term);
     if (!accepted) continue;
-    const loose = looseReadings(accepted);
+    const loose = looseReadings(accepted), nearTerm = near && NEAR_TERMS.has(term.join(''));
     for (const i of starts(term, loose)) {
       if (i + term.length > chars.length) break;
       let differs = false, ok = true;
@@ -139,7 +144,7 @@ export function phoneticCorrect(text, terms = DEFAULT_TERMS, {near = false} = {}
         const c = chars[i + k], heard = heardOf[i + k];
         if (locked[i + k]) { ok = false; break; }
         if (c !== term[k] && !accepted[k].has(heard)) {
-          if (near && heard && loose[k][1].has(merged(heard))) nearChars.push(i + k);
+          if (nearTerm && heard && loose[k][1].has(merged(heard))) nearChars.push(i + k);
           // Terms of 3+ chars tolerate one char with the right syllable but another tone (拿厄米 → 拿俄米).
           else if (term.length >= 3 && toneSlips === 0 && heard && loose[k][0].has(toneless(heard))) toneSlips++;
           else { ok = false; break; }

@@ -84,8 +84,11 @@ test('near sounds (candidate rule, off by default): tone and Taiwan mergers, nev
   assert.equal(near('在招會中多年'), '在召會中多年');                 // tone only
   assert.equal(near('神新約的經論裡'), '神新約的經綸裡');
   assert.equal(near('他是聲言者'), '他是申言者');                     // eng/en
-  assert.equal(near('孫子伯薩撒在宮中'), '孫子伯沙撒在宮中');         // s/sh
-  assert.equal(near('他們生出了摩亞人'), '他們生出了摩押人');
+  assert.equal(near('思想是基督與造會做神的殿'), '思想是基督與召會做神的殿'); // z/zh
+  // Only books and church terms: not Bible names, and not the church terms in NEAR_SKIP.
+  for (const text of ['孫子伯薩撒在宮中', '他們生出了摩亞人', '撒迦利雅接續', '祂的聖言，和', '叛逆那領你們']) {
+    assert.equal(near(text), text, text);
+  }
   // Not when the changed char is part of an everyday word, or fewer chars are identical than changed.
   for (const text of ['簡單來說祭祀的職任', '包羅萬有的基督', '實際上我們', '在西奈山上', '能夠生養眾多', '被折服', '他們要得到公益的報應',
     '終我們要看到雅閣和', // 雅各 or 雅歌: two terms fit equally, so neither
