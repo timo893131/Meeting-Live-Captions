@@ -11,9 +11,9 @@
 
 | 里程碑 | 狀態 | 下一步 |
 | --- | --- | --- |
-| M0 收尾（同音放寬第 3 輪、PR #16） | 2026-11-16：Drive 最新結果 `20261114-135356-near` 是**第 2 輪**（早於第 3 輪 commit 121384b；正確全文多改 664 處）。第 3 輪 unrun。`test_colab_notebook` 既存失敗已修（套用 b316493）。 | 使用者跑 `phonetic_near_check.ipynb`（COMMIT 121384b）→ 我讀結果 |
-| M1 綱要輸入與本場詞表 | 前置完成：`scripts/outline_pdf_to_md.py`＋`notebooks/outline_to_markdown.ipynb`，方法見 [../outline-conversion.md](../outline-conversion.md)。範例 `ex_TS26TRN_zht.pdf`（62 MB）無法在此環境讀取。 | 使用者跑 `outline_to_markdown.ipynb` → 我讀 Markdown／報告，調整標號規則 → `public/outline.js` |
-| M2 經文對齊 | 未開始 | 等使用者同意 R2 存經文 |
+| M0 收尾（同音放寬第 3 輪、PR #16） | 2026-11-16：Drive 最新結果 `20261114-135356-near` 是**第 2 輪**（早於第 3 輪 commit 121384b；正確全文多改 664 處）。第 3 輪 unrun。`test_colab_notebook` 既存失敗已修（套用 b316493）。 | 使用者說已跑，但 2026-11-16 Drive 上找不到新的 `*-near` 結果（最新仍是第 2 輪）→ 請使用者確認第 4、5 格是否有錯誤 |
+| M1 綱要輸入與本場詞表 | 前置完成：`scripts/outline_pdf_to_md.py`＋`notebooks/outline_to_markdown.ipynb`，方法見 [../outline-conversion.md](../outline-conversion.md)。範例 `ex_TS26TRN_zht.pdf` 87 頁全是圖片（無文字層）→ 新增 `scripts/outline_ocr.py`＋`notebooks/outline_ocr.ipynb`（Google 雲端硬碟 OCR＋自動檢查）。 | 使用者跑 `outline_ocr.ipynb` → 我讀 Markdown／報告，調整標號規則 → `public/outline.js` |
+| M2 經文對齊 | 未開始；2026-11-16 使用者**同意**恢復本經文存 Cloudflare R2 私人 bucket、只給房主讀取 | M1 之後 |
 | M3 訓練資料 | 未開始 | — |
 | M4 微調 | 未開始 | — |
 | M5 Modal 部署 | 未開始 | 使用者申請 Modal |
@@ -25,12 +25,14 @@
 | --- | --- | --- | --- |
 | 同音放寬第 3 輪 | `notebooks/phonetic_near_check.ipynb` dev | unrun | 121384b |
 | 綱要轉換 | `test.test_outline_pdf_to_md`（含 PyMuPDF 產生的真 PDF） | passed | 1903508 |
-| 範例綱要轉換 | Colab `outline_to_markdown.ipynb` | unrun | — |
+| 範例綱要轉換（文字層） | Colab `outline_to_markdown.ipynb` | passed（執行成功；87 頁無文字層） | 1903508 |
+| 綱要 OCR | `test.test_outline_ocr`（假 OCR／假 Drive 服務；真 PDF 轉圖） | passed | 253ab13 |
+| 範例綱要 OCR | Colab `outline_ocr.ipynb` | unrun | 253ab13 |
 | Colab 筆記本測試 | `test.test_colab_notebook` | passed（6） | 2026-11-16 |
 
 ## 交接
 
 - 已完成：規格、使用者決策紀錄、免費部署選項查核（Modal Starter US$30／月額度；Workers AI 不能放自訂 Whisper；Colab／ZeroGPU／Oracle 不適合即時服務）。
-- 未解：spec 第 8 節第 2、3 項待使用者確認（第 1 項綱要範例已提供，等轉換結果）。
+- 未解：spec 第 8 節第 3 項（Modal）M5 前再確認；第 2 項 R2 已同意（第 1 項綱要範例已提供，等轉換結果）。
 - 2026-11-16 使用者：大型聚會一天約 8 小時，平常聚會 2–3 小時；**先把準確度與穩定度做到最好**，時數／額度之後再考慮（可能提高預算）。注意 Workers AI 免費額度約 3.5 小時／天。
 - token／wall time／費用：unavailable。

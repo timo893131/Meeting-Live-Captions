@@ -5,7 +5,7 @@
 
 ## 結論
 
-1. **讀 PDF 的文字層，不做 OCR。** 訓練綱要的 PDF 通常由排版軟體輸出、帶文字層，直接抽字就和原稿一字不差，而且一份幾秒鐘就能跑完。
+1. **有文字層就直接讀，不做 OCR。** 訓練綱要的 PDF 通常由排版軟體輸出、帶文字層，直接抽字就和原稿一字不差，而且一份幾秒鐘就能跑完。
    OCR（Google 文件「用 Google 文件開啟」、Tesseract）會把恢復本專名認錯（例如「祂」「裏」「豫表」），錯字一旦加進本場詞表，就會把字幕改錯。
    只有報告列出「沒有文字層」的頁（掃描或圖片），才對那幾頁補做 OCR 或人工輸入。
 2. **要先轉成 Markdown，但只是中間格式。** Markdown 保留綱要的層次：`## 第X篇 篇題`、`讀經：` 行，以及 `壹／一／1／a` 依層級縮排的要點。這正是 `parseOutline` 要用的
@@ -19,7 +19,8 @@
 | 檔案 | 用途 |
 | --- | --- |
 | `scripts/outline_pdf_to_md.py` | PyMuPDF 抽文字層 → 清理 → 分篇 → `<檔名>.md`、`<檔名>/NN.md`（每篇一檔）、`<檔名>.report.json` |
-| `notebooks/outline_to_markdown.ipynb` | Colab（CPU）：在 MyDrive 找到 PDF，結果寫在 PDF 旁的 `<檔名>-md/` |
+| `notebooks/outline_to_markdown.ipynb` | Colab（CPU）：有文字層的 PDF；在 MyDrive 找到 PDF，結果寫在 PDF 旁的 `<檔名>-md/` |
+| `scripts/outline_ocr.py`、`notebooks/outline_ocr.ipynb` | 掃描 PDF：Google 雲端硬碟 OCR → 同一套轉換＋自動檢查 |
 | `test/test_outline_pdf_to_md.py` | 合成頁面＋真的 PDF（用 PyMuPDF 產生）測試 |
 
 ## 已處理的 PDF 問題
@@ -40,8 +41,24 @@
 `report.json` 每篇有 `scripture_lines`（讀經行）、`points`（有標號的要點數）、`verse_references`（經節數）、`unmarked_lines`（沒有標號的行）。
 正常的一篇：有 1 行讀經、數十個要點、未標號行很少。若未標號行很多，可能是雙欄排版、詩歌或附錄，要人工看。`warnings` 不是空的就要先處理。
 
-## 範例 PDF 現況
+## 範例 PDF 現況（2026-11-16）
 
-使用者提供 Drive 資料夾裏的 `ex_TS26TRN_zht.pdf`（62 MB）。Drive 沒有為它建立文字索引；MCP 下載上限 10 MB，這個雲端環境的網路也不能直接下載，
-所以**本對話還沒有看過內容**。請在 Colab 跑 `notebooks/outline_to_markdown.ipynb`，再回覆「直接讀」，我讀 `ex_TS26TRN_zht-md/` 的報告與 Markdown，
-依實際格式調整標號規則，然後開始 M1 的 `parseOutline`。
+`ex_TS26TRN_zht.pdf`（62 MB）用 `outline_to_markdown.ipynb` 轉換的結果：**87 頁都沒有文字層，整份都是掃描或圖片頁**，所以要走 OCR。
+
+## 掃描 PDF：Google 雲端硬碟 OCR
+
+| 選項 | 判斷 |
+| --- | --- |
+| **Google 雲端硬碟 OCR**（採用） | 免費，用使用者自己的帳號，不必安裝；印刷體繁體中文品質好。每頁轉成 < 2 MB 的 JPEG（Drive OCR 的上限），以 `ocrLanguage=zh-TW` 建暫存 Google 文件，匯出文字後刪除 |
+| Tesseract `chi_tra` | 免費，但中文印刷體錯字明顯較多 |
+| PaddleOCR／RapidOCR | 品質好，但模型在執行時才下載，版本相依多；Drive OCR 不夠好時再當第二引擎比較 |
+| 付費 OCR API、視覺語言模型 | 不符合零費用 |
+| **原稿文字檔（Word／網頁）** | 如果拿得到，最準也最快，完全不必 OCR |
+
+沒有人工打字的參考稿，所以 `scripts/outline_ocr.py` 用兩項自動檢查估計 OCR 品質：
+1. 經節章數不存在（例如「弗七3」，以弗所書只有 6 章）：多半是數字或國字認錯。
+2. 和內建教會專名／聖經人名只差一個字（例如「神的經論」對「神的經綸」）：可能認錯字。
+
+這兩份清單在 `report.json` 的 `invalid_references`、`term_suspects`。房主貼上綱要前應該先修好，因為錯字會進本場詞表。
+
+執行：`notebooks/outline_ocr.ipynb`（CPU），輸出在 PDF 旁的 `<檔名>-ocr/`（每頁快取）與 `<檔名>-md/`。
