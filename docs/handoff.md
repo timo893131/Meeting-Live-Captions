@@ -20,6 +20,7 @@ https://meeting-live-captions.livecap-worker.workers.dev（Worker `meeting-live-
 | 辨識 | 預設 Workers AI Whisper large-v3-turbo（`POST /api/transcribe`）：瀏覽器停頓切段（5 秒後遇 0.3 秒停頓、或 1.5 秒停頓、最長 9 秒）；Worker 轉繁體、濾幻聽。Chrome `SpeechRecognition` 當灰字預覽；額度用完／連續失敗改用 Chrome。 |
 | 額度 | 每天 10,000 neurons ≈ 214 音訊分鐘，UTC 0 點（台灣 08:00）重置；`SpeechLimit` 每 IP 每天 4 小時、每分鐘 40 段。 |
 | 校正 | 同音教會專名校正 `public/phonetic.js`（書卷、教會專名、人名地名、一律校正詞）；詞彙校正表預設空白。 |
+| 本場綱要 | 設定裏貼上當堂綱要（只存在房主瀏覽器）：綱要用到的內建專名本場接受相近讀音，綱要中的新詞加入同音校正（`public/outline.js`，M1，2026-11-16 上線）。綱要 PDF／掃描檔用 `notebooks/outline_ocr.ipynb` 轉成每篇 Markdown（[outline-conversion.md](outline-conversion.md)）。 |
 | 房間 | 個人／廣播／加入（密碼、邀請連結、QR）；Workers 版字幕存 Durable Object，結束或 12 小時刪除；Node 版只存記憶體。 |
 
 ## 量測基準
