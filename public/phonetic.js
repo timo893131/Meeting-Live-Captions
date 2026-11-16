@@ -146,9 +146,10 @@ export function phoneticCorrect(text, terms = DEFAULT_TERMS, {near = false, near
         const c = chars[i + k], heard = heardOf[i + k];
         if (locked[i + k]) { ok = false; break; }
         if (c !== term[k] && !accepted[k].has(heard)) {
-          if (nearTerm && heard && loose[k][1].has(merged(heard))) nearChars.push(i + k);
           // Terms of 3+ chars tolerate one char with the right syllable but another tone (拿厄米 → 拿俄米).
-          else if (term.length >= 3 && toneSlips === 0 && heard && loose[k][0].has(toneless(heard))) toneSlips++;
+          // Checked before near sounds, so allowing near sounds only adds matches (汴亞敏 → 便雅憫 stays a tone slip).
+          if (term.length >= 3 && toneSlips === 0 && heard && loose[k][0].has(toneless(heard))) toneSlips++;
+          else if (nearTerm && heard && loose[k][1].has(merged(heard))) nearChars.push(i + k);
           else { ok = false; break; }
         }
         if (c !== term[k]) differs = true;

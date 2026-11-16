@@ -19,7 +19,7 @@ const SCRIPTURE = /^(?:讀經|读经)\s*[:：]\s*(.*)$/;
 const MARKER = /^(?:[壹貳參叁肆伍陸柒捌玖拾]+|[一二三四五六七八九十]+|[（(][一二三四五六七八九十\d０-９a-zａ-ｚ]+[)）]|\d{1,2}|[a-z])(?:[\s　、.．]+|$)/;
 const DIGITS = {'○': 0, '〇': 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9};
 // Particles, pronouns and common single-char verbs: a term never contains one (「的生命」「基督是」「說到神」 are not terms).
-const EDGE = new Set(Array.from('的了是在和與及並而就也都要我你他她祂牠們這那其為着著裏裡之所以使把被從對於乃即有無不能得地個些或且但若因如此向給讓叫將已還又再更最很甚麼嗎呢吧一二三四五六七八九十說到來去看纔才可會'));
+const EDGE = new Set(Array.from('的了是在和與及並而就也都要我你他她祂牠們這那其為着著裏裡之所以使把被從對於乃即有無不能得地個些或且但若因如此向給讓叫將已還又再更最很甚麼嗎呢吧一二三四五六七八九十說到來去看纔才可會上中下'));
 export const MAX_TERMS = 300;
 
 /** 二三 = 23, 十四 = 14, 二十 = 20, 一百一十九 = 119, 一一九 = 119. */
@@ -90,14 +90,17 @@ let cache = {key: null, value: null};
  *   terms: this meeting's new terms — words the everyday dictionary does not know (names, places, rare church
  *   words) that occur at least minCount times: each line is split into dictionary words (longest match first);
  *   a run of 2–6 leftover single chars, trimmed of particles at its edges, is a candidate (「彼列」「麥基洗德」).
- *   A single occurrence is too often a run of everyday single-char words (「節是說到神」).
+ *   A single occurrence is too often a run of everyday single-char words (「節是說到神」), except a 3+ char word in
+ *   the title (often the message's main name).
  */
 export function parseOutline(text, {common = new Set(), known = [], minCount = 2} = {}) {
   const key = `${minCount}\u0000${known.length}\u0000${common.size}\u0000${text}`;
   if (cache.key === key) return cache.value;
   let title = '';
   const points = [], scripture = [], quotes = [];
-  for (const raw of String(text || '').split(/\r?\n/)) {
+  // Full-width digits (拉一１～４) as plain digits, so verse references parse.
+  const plain = String(text || '').replace(/[０-９]/g, d => String.fromCharCode(d.charCodeAt(0) - 0xFEE0));
+  for (const raw of plain.split(/\r?\n/)) {
     if (/^#{3,6}\s/.test(raw.trim())) continue;  // section headings the converter adds (### 引用經文…)
     const line = stripMarkdown(raw);
     if (!line) continue;
@@ -120,16 +123,22 @@ export function parseOutline(text, {common = new Set(), known = [], minCount = 2
   const knownSet = new Set(known);
   const dictionary = {has: word => common.has(word) || knownSet.has(word)};
   const counts = new Map();
-  for (const line of [title, ...points]) {
+  const inTitle = new Set();
+  [title, ...points].forEach((line, index) => {
     for (const run of line.replace(new RegExp(REF.source, 'g'), ' ').match(/[\u4e00-\u9fff]+/g) || []) {
-      for (const term of unknownRuns(run, dictionary)) counts.set(term, (counts.get(term) || 0) + 1);
+      for (const term of unknownRuns(run, dictionary)) {
+        counts.set(term, (counts.get(term) || 0) + 1);
+        if (index === 0) inTitle.add(term);
+      }
     }
-  }
+  });
   // Built-in terms in the outline, plus the books its verse references cite (弗一23 → 以弗所書).
   const cited = refs.map(ref => BIBLE_BOOKS[BOOK_ABBREVIATIONS.indexOf(ref.book)]);
   const knownFound = [...new Set([...[...knownSet].filter(term => [title, ...points].some(line => line.includes(term))),
     ...cited.filter(book => knownSet.has(book))])];
-  const picked = [...counts].filter(([term, n]) => n >= minCount && !knownSet.has(term))
+  // A word of 3+ chars in the title counts even once (所羅巴伯 in 「被擄之人在所羅巴伯的君王領導之下歸回」).
+  const picked = [...counts].filter(([term, n]) => (n >= minCount || (inTitle.has(term) && Array.from(term).length >= 3))
+    && !knownSet.has(term))
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, MAX_TERMS);
   const value = {title, points, refs, quotes, terms: picked.map(([term]) => term), known: knownFound};
   cache = {key, value};

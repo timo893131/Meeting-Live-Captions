@@ -43,7 +43,8 @@ test('parses title, scripture, points, quoted verses and refs from converter Mar
   assert.equal(outline.refs.length, 10);
   // Built-in terms it uses, plus the books its references cite (太 → 馬太福音, 門 → 腓利門書).
   for (const term of ['以撒', '馬太福音', '腓利門書', '哥林多後書', '以弗所書', '詩篇']) assert.ok(outline.known.includes(term), term);
-  assert.deepEqual(outline.terms, ['基督', '彼列']);  // each in 2+ points; particles (對、是) split them from their neighbours
+  // 基督、彼列 in 2+ points (particles 對、是 split them from their neighbours); 基督徒 is a 3-char word in the title.
+  assert.deepEqual(outline.terms, ['基督', '彼列', '基督徒']);
   assert.deepEqual(parse(OUTLINE, {minCount: 1}).terms.includes('彼列'), true);
 });
 
@@ -74,6 +75,20 @@ test('near sounds only for built-in terms this outline uses, never NEAR_SKIP one
   assert.equal(phoneticCorrect('基督對彼烈有甚麼和諧', terms, {nearTerms: options.nearTerms}).text, '基督對彼列有甚麼和諧');
   assert.equal(phoneticCorrect('基督對彼烈有甚麼和諧').text, '基督對彼烈有甚麼和諧');  // without the outline
   assert.deepEqual(correctionOptions(null), {terms: [], nearTerms: null});
+});
+
+test('allowing near sounds never drops a tone-slip match the site already makes', () => {
+  loadPinyin(data);
+  // 汴亞敏 → 便雅憫 is a one-tone slip; with 便雅憫 allowed near sounds it must still be corrected.
+  assert.equal(phoneticCorrect('猶大和汴亞敏的族長').text, '猶大和便雅憫的族長');
+  assert.equal(phoneticCorrect('猶大和汴亞敏的族長', DEFAULT_TERMS, {nearTerms: new Set(['便雅憫'])}).text, '猶大和便雅憫的族長');
+});
+
+test('full-width verse digits and a title name used once', () => {
+  const outline = parse('第三篇　被擄之人在瑪拉坦尼的帶領下歸回\n讀經：拉一１～４，代下三六２２～２３\n壹　波斯王的詔令');
+  assert.deepEqual(outline.refs.map(r => [r.book, r.chapter, r.verse, r.to]), [['拉', 1, 1, 4], ['代下', 36, 22, 23]]);
+  assert.ok(outline.known.includes('以斯拉記'));
+  assert.deepEqual(outline.terms, ['瑪拉坦尼']);  // the made-up title name, though only once; not 「下歸回」
 });
 
 test('book tables agree with the Python converters', () => {
