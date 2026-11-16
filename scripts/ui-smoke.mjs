@@ -214,6 +214,29 @@ test('this meeting\'s outline corrects captions, stays in the host browser and i
   await expect(page.locator('#outlineSummary')).toHaveText('未輸入綱要。');
 });
 
+test('an outline file with several messages lets the host pick one; PDF gets a hint', async t => {
+  const {page} = await fixture(t);
+  await page.locator('#settings > summary').click();
+  await expect(page.locator('#outlinePartLabel')).toBeHidden();
+  const file = '# ex\n\n## 第一篇　門徒與基督徒\n\n讀經：創二一3\n\n- 壹 以撒是應許之子。\n\n## 第二篇　永遠的生命\n\n讀經：約壹一1\n\n- 壹 神的生命。\n';
+  await page.locator('#outlineFile').setInputFiles({name: 'training.md', mimeType: 'text/markdown', buffer: Buffer.from(file)});
+  await expect(page.locator('#message')).toContainText('共 2 篇');
+  await expect(page.locator('#outlinePart option')).toHaveText(['第一篇　門徒與基督徒', '第二篇　永遠的生命']);
+  await expect(page.locator('#outlineSummary')).toContainText('篇題：門徒與基督徒');
+  await page.locator('#outlinePart').selectOption({label: '第二篇　永遠的生命'});
+  await expect(page.locator('#outline')).toHaveValue(/永遠的生命/);
+  await expect(page.locator('#outline')).not.toHaveValue(/以撒/);
+  await expect(page.locator('#outlineSummary')).toContainText('篇題：永遠的生命');
+  await page.reload();
+  await page.locator('#settings > summary').click();
+  await expect(page.locator('#outlinePart')).toHaveValue('1');  // the whole file and the chosen message survive a reload
+  await page.locator('#outlineFile').setInputFiles({name: 'outline.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4')});
+  await expect(page.locator('#message')).toContainText('outline_ocr');
+  await expect(page.locator('#outline')).toHaveValue(/永遠的生命/);  // unchanged
+  await page.locator('#clearOutline').click();
+  await expect(page.locator('#outlinePartLabel')).toBeHidden();
+});
+
 function silentWav(seconds) {
   const rate = 16000, samples = rate*seconds, wav = Buffer.alloc(44 + samples*2);
   wav.write('RIFF', 0); wav.writeUInt32LE(36 + samples*2, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
