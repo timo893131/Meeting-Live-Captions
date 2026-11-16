@@ -27,7 +27,7 @@
 | 綱要轉換 | `test.test_outline_pdf_to_md`（含 PyMuPDF 產生的真 PDF） | passed | 1903508 |
 | 範例綱要轉換（文字層） | Colab `outline_to_markdown.ipynb` | passed（執行成功；87 頁無文字層） | 1903508 |
 | 綱要 OCR | `test.test_outline_ocr`（假 OCR／假 Drive 服務；真 PDF 轉圖） | passed | 253ab13 |
-| 範例綱要 OCR | Colab `outline_ocr.ipynb` | failed：Drive 400 `ocrLanguage=zh-TW` 無效 → 改 `zh`，待重跑 | b0561bb |
+| 範例綱要 OCR | Colab `outline_ocr.ipynb` | failed ×2：Drive 400 `ocrLanguage`（zh-TW、zh 都無效）→ 改為不送語言提示，待重跑 | 6a794b9 |
 | Colab 筆記本測試 | `test.test_colab_notebook` | passed（6） | 2026-11-16 |
 
 ## 交接
