@@ -72,7 +72,7 @@ def load_recovery_version(text_dir):
         chapter = 1
         for line in path.read_text(encoding='utf-8').splitlines():
             line = line.strip()
-            heading = re.match(r'^\S+ 第 (\d+) 章$', line)
+            heading = re.match(r'^\S+ 第 (\d+) [章篇]$', line)  # 詩篇寫「第 N 篇」
             if heading:
                 chapter = int(heading.group(1))
                 continue
@@ -82,8 +82,14 @@ def load_recovery_version(text_dir):
     return verses
 
 
-def hanzi(text):
-    return ''.join(c for c in text if '\u4e00' <= c <= '\u9fff' or '\u3400' <= c <= '\u4dbf')
+# 印刷版綱要和網站恢復本用字不同（不是 OCR 錯字）：比對前統一
+PRINT_VARIANTS = str.maketrans({'着': '著', '旣': '既', '衛': '衞', '粃': '秕', '蹟': '迹', '倣': '仿', '罣': '掛',
+                                '搾': '醡', '啊': '阿', '卽': '即', '畧': '略', '舍': '捨', '哪': '那', '裡': '裏'})
+
+
+def hanzi(text, variants=False):
+    text = ''.join(c for c in text if '\u4e00' <= c <= '\u9fff' or '\u3400' <= c <= '\u4dbf')
+    return text.translate(PRINT_VARIANTS) if variants else text
 
 
 def fitting_distance(piece, reference):
@@ -123,26 +129,30 @@ def check_messages(messages, verses=None):
         result['warnings'].append(f'{len(bad_refs)} 個經節的章數不存在（多半是 OCR 認錯數字），見 invalid_references')
     if verses is None:
         return result
-    checked, errors, chars, worst, unknown, moved = 0, 0, 0, [], [], 0
+    checked, errors, raw_errors, chars, worst, unknown, moved = 0, 0, 0, 0, [], [], 0
     for message in messages:
         label = f"第{message['number']}篇" if message['number'] else '篇題前'
         candidates = []
         for quote in message.get('quotes', []):
             keys = quote_keys(quote['ref'])
-            texts = [hanzi(verses[k]) for k in keys if k in verses]
+            texts = [hanzi(verses[k], variants=True) for k in keys if k in verses]
             if keys and not texts:
                 unknown.append({'message': label, 'ref': quote['ref']})
             candidates += texts
-            ocr = hanzi(quote['text'])
+            ocr = hanzi(quote['text'], variants=True)
             if len(keys) == 1 and texts and len(ocr) >= 4:
-                distance = fitting_distance(ocr, texts[0])
-                checked, errors, chars = checked + 1, errors + distance, chars + len(ocr)
+                # OCR 可能只有一節的一部分（換行被切開），也可能多接了別的字：兩個方向取較少的錯
+                distance = min(fitting_distance(ocr, texts[0]), fitting_distance(texts[0], ocr))
+                raw = min(fitting_distance(hanzi(quote['text']), hanzi(verses[keys[0]])),
+                          fitting_distance(hanzi(verses[keys[0]]), hanzi(quote['text'])))
+                checked, errors, chars = checked + 1, errors + distance, chars + min(len(ocr), len(texts[0]))
+                raw_errors += raw
                 if distance:
                     worst.append({'message': label, 'ref': quote['ref'], 'errors': distance, 'ocr': quote['text'],
                                   'recovery_version': verses[keys[0]]})
         kept, message['verse_text'] = [], []
         for item in message['items']:
-            text = hanzi(item['text'])
+            text = hanzi(item['text'], variants=True)
             if not item['level'] and len(text) >= 6 and any(
                     len(set(text) & set(c)) >= 0.7 * len(set(text)) and fitting_distance(text, c) <= 0.15 * len(text)
                     for c in candidates):
@@ -154,7 +164,9 @@ def check_messages(messages, verses=None):
     worst.sort(key=lambda w: -w['errors'])
     result['verse_check'] = {
         'quotes_checked': checked, 'ocr_chars': chars, 'errors': errors,
-        'cer': round(errors / chars, 4) if chars else None, 'verse_text_lines_moved': moved,
+        'cer': round(errors / chars, 4) if chars else None,
+        'cer_counting_print_variants': round(raw_errors / chars, 4) if chars else None,
+        'verse_text_lines_moved': moved,
         'unknown_refs': unknown[:50], 'worst': worst[:40],
     }
     if unknown:

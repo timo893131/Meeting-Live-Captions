@@ -64,6 +64,8 @@ DIGITS = {c: i for i, c in enumerate('○一二三四五六七八九')} | {'〇'
 FORMAL_DIGITS = {c: i for i, c in enumerate('壹貳參肆伍陸柒捌玖拾', 1)} | {'叁': 3}
 UNSPACED_MARKER_RE = re.compile(r'^([壹貳參叁肆伍陸柒捌玖拾]|[一二三四五六七八九十]{1,3})(?=[\u4e00-\u9fff『「])')
 ITEM_END = '。：:；;』」）)?？!！'
+TITLE_CONTINUES = '、，,與和及'
+QUOTE_TAIL_RE = re.compile(r'(?<=[。？！?!』」])\s+(?=\S)')
 
 
 def chinese_number(text):
@@ -191,14 +193,17 @@ def build_messages(pages, stats):
     messages = [front]
     current = None  # the item (dict) that a wrapped line continues
     last_number = {}  # 每層最後一個標號的數值，判斷沒有空白的標號
+    pending_lines = 0
     pending_marker = ''  # OCR 常把頁邊的標號（「3」「壹」）切成單獨一行：接到下一行前面
 
     def message():
         return messages[-1]
 
     for page_number, page in enumerate(pages, 1):
-        for line in page['lines']:
-            text = normalize_text(line['text'], stats)
+        queue = list(page['lines'])
+        while queue:
+            line = queue.pop(0)
+            text = line['text'] if line.get('normalized') else normalize_text(line['text'], stats)
             if text in ('-', '－'):  # OCR 把單獨一行的標號「一」讀成「-」
                 text = '一'
             text, fixed = OCR_CHAPTER_RE.subn(lambda m: m.group(1) + ('一' if m.group(2) == '-' else '十'), text)
@@ -227,14 +232,30 @@ def build_messages(pages, stats):
                 # 一行可能有兩節：「弗6:17 還要…；弗6:18 時時…」
                 pieces = re.split(rf'(?:^|\s)({QUOTE_REF})(?=\s|$)', ' ' + text)
                 for ref, quoted in zip(pieces[1::2], pieces[2::2]):
-                    message()['quotes'].append({'ref': ref, 'text': squeeze(quoted.strip())})
+                    # OCR 會把下一行（綱要或下一節）接在經文後面，中間是「句號＋空白」：拆開，後半當成新的一行處理
+                    quoted, *rest = QUOTE_TAIL_RE.split(quoted.strip(), maxsplit=1)
+                    message()['quotes'].append({'ref': ref, 'text': squeeze(quoted)})
+                    if rest:
+                        stats['quote_tails_split'] += 1
+                        queue.insert(0, {**line, 'text': rest[0], 'normalized': True})
                 current = None
                 continue
             if MARKER_ONLY_RE.match(text):
-                pending_marker = text
+                pending_marker, pending_lines = text, 0
                 continue
-            if pending_marker:
+            needs_title = not body_size and message()['number'] is not None and not message()['items'] \
+                and not message()['scripture'] and (not message()['title'] or message()['title'][-1] in TITLE_CONTINUES)
+            if needs_title and not SCRIPTURE_RE.match(text) and not line_level(text):
+                # OCR 文字沒有字級：「第X篇」之後、讀經之前沒有標號的行是篇題（以「、」結尾表示篇題還沒完）
+                message()['title'] += text
+                current = None
+                continue
+            looks_like_point = REF_RE.search(text) or text.rstrip()[-1:] in ':：'
+            if pending_marker and not SCRIPTURE_RE.match(text) and (looks_like_point or pending_lines >= 12):
+                # 單獨一行的標號接到下一個「像綱要要點」的行（有經節或以冒號結尾），不接到經文內容
                 text, pending_marker = f'{pending_marker} {text}', ''
+            elif pending_marker:
+                pending_lines += 1
             scripture = SCRIPTURE_RE.match(text)
             if scripture:
                 message()['scripture'].append(scripture.group(2))
@@ -253,8 +274,8 @@ def build_messages(pages, stats):
                     stats['unspaced_markers'] += 1
             if body_size:
                 heading = line['size'] >= body_size * 1.15
-            else:  # OCR 文字沒有字級：「第X篇」後第一行沒有標號的字就是篇題
-                heading = message()['number'] is not None and not message()['title']
+            else:  # OCR：篇題在上面處理
+                heading = False
             if level:
                 current = {'kind': 'item', 'level': level, 'text': item_text(text, level)}
                 message()['items'].append(current)
@@ -313,7 +334,8 @@ def convert(pdf_path, output_dir, pages=None, checks=None):
     """pages: precomputed lines (e.g. from OCR) instead of the PDF text layer; checks(messages) → dict merged into the report."""
     pdf_path, output_dir = Path(pdf_path), Path(output_dir)
     stats = Counter(private_use_chars=0, normalized_chars=0, running_lines_removed=0, toc_lines_skipped=0,
-                    continuation_headers=0, ocr_chapter_fixes=0, unspaced_markers=0)
+                    continuation_headers=0, ocr_chapter_fixes=0, unspaced_markers=0,
+                    quote_tails_split=0)
     pages = extract_pages(pdf_path) if pages is None else pages
     empty = [n for n, page in enumerate(pages, 1) if sum(len(l['text'].strip()) for l in page['lines']) < 20]
     remove_running_lines(pages, stats)

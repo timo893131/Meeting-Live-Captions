@@ -236,6 +236,40 @@ class OutlineOcrTests(unittest.TestCase):
         self.assertEqual((report['unspaced_markers'], report['ocr_chapter_fixes']), (1, 3))
         self.assertEqual(report['invalid_references'], [])
 
+    def test_wrapped_title_marker_before_header_and_glued_quote_tail(self):
+        pages = [outline_ocr.ocr_text_to_page('\n'.join(lines)) for lines in (
+            ['頁首', '第三篇', '甲、乙、', '丙和丁', '讀經:太三12', '太3:12 祂手裏拿着簸箕。 壹 信徒是麥子—太三12:', '頁尾', '1'],
+            ['頁首', '壹', '第八篇', '認識基督', '讀經:太二1', '太2:1 經文內容。', '另一行經文。', '基督是王—太二1~2:',
+             '頁尾', '2'])]
+        with tempfile.TemporaryDirectory() as folder:
+            report = outline_ocr.outline.convert(Path(folder)/'t.pdf', folder, pages=pages,
+                                                 checks=lambda m: outline_ocr.check_messages(m))
+            markdown = (Path(folder)/'t.md').read_text(encoding='utf-8')
+        self.assertEqual([m['title'] for m in report['messages'] if m['number']], ['甲、乙、丙和丁', '認識基督'])
+        self.assertIn('- 太3:12 祂手裏拿着簸箕。\n', markdown)  # 接在經文後面的要點拆出來
+        self.assertIn('- 壹 信徒是麥子—太三12:', markdown)
+        self.assertIn('讀經：太二1', markdown)
+        self.assertIn('- 壹 基督是王—太二1~2:', markdown)  # 標號等到像要點的行，不接到經文內容
+        self.assertIn('\n另一行經文。\n', markdown)
+        self.assertEqual(report['quote_tails_split'], 1)
+
+    def test_psalm_headings_and_print_variants_are_not_ocr_errors(self):
+        with tempfile.TemporaryDirectory() as folder:
+            text = Path(folder)/'rv'
+            text.mkdir()
+            (text/'19-詩篇.txt').write_text('詩篇\n詩篇 第 23 篇\n1 耶和華是我的牧者，我必不致缺乏。\n'
+                                          '2 祂使我躺臥在青草地上，領我在可安歇的水邊。\n', encoding='utf-8')
+            (text/'40-馬太福音.txt').write_text('馬太福音 第 9 章\n12 耶穌聽見，就說，強健的人用不著醫生，有病的人纔用得著。\n',
+                                           encoding='utf-8')
+            verses = outline_ocr.load_recovery_version(text)
+        self.assertIn(('詩', 23, 2), verses)
+        messages = [{'number': '一', 'scripture': [], 'items': [], 'quotes': [
+            {'ref': '太9:12', 'text': '耶穌聽見,就說,強健的人用不着醫生,有病的人纔用得着。'},
+            {'ref': '詩23:1', 'text': '耶和華是我的牧者,我必不致缺乏。 二 我們要跟從祂。'}]}]
+        check = outline_ocr.check_messages(messages, verses)['verse_check']
+        self.assertEqual((check['quotes_checked'], check['errors'], check['unknown_refs']), (2, 0, []))
+        self.assertGreater(check['cer_counting_print_variants'], 0)  # 着／著 只在原始字數裏算錯
+
     @unittest.skipUnless(importlib.util.find_spec('pymupdf'), 'PyMuPDF not installed')
     def test_rendered_pages_fit_drive_ocr_limit(self):
         import pymupdf
