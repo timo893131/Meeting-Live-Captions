@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | M0 收尾（同音放寬第 3 輪、PR #16） | 2026-11-16：Drive 最新結果 `20261114-135356-near` 是**第 2 輪**（早於第 3 輪 commit 121384b；正確全文多改 664 處）。第 3 輪 unrun。`test_colab_notebook` 既存失敗已修（套用 b316493）。 | 使用者說已跑，但 2026-11-16 Drive 上找不到新的 `*-near` 結果（最新仍是第 2 輪）→ 請使用者確認第 4、5 格是否有錯誤 |
 | M1 綱要輸入與本場詞表 | 實作完成（b926ac6）：`public/outline.js`、設定「本場綱要」、`evaluate_meet.py --outline`；綱要轉換見 [../outline-conversion.md](../outline-conversion.md) | **已上線**（PR #17 合併 28c75a7，2026-11-16 正式網址驗證通過） | M2 |
-| M2 經文對齊 | 未開始；2026-11-16 使用者**同意**恢復本經文存 Cloudflare R2 私人 bucket、只給房主讀取 | M1 之後 |
+| M2 經文對齊 | 第一步已上線（PR #21，e5d9c28）：R2 `meeting-captions-scripture` 已上傳恢復本 1,189 章／31,092 節（sha256 af85fa76…）；`/api/verses` 只給房主 | 第二步：`public/verse-align.js`＋開發集量測 |
 | M3 訓練資料 | 未開始 | — |
 | M4 微調 | 未開始 | — |
 | M5 Modal 部署 | 未開始 | 使用者申請 Modal |
@@ -32,6 +32,7 @@
 | M1 開發集（第 2 輪） | 同上（run 20261116-064428-outline） | 教會專名 805→815（**未達 +31 門檻**）、多出 63→63；人名地名 368→369、多出 89→97；修好 36／改壞 2（達 ≤1/5）；CER 47.00%→46.95%；本場新詞 229→248/287、多出 0；正確原文誤改 0 | b291e7f |
 | M1 正式網址 | health、靜態檔與 main 28c75a7 一致、`smoke-cloudflare`（房間／密碼／邀請／廣播／刪除）、瀏覽器：房主貼綱要＋觀眾加入＋模擬 Chrome 語音「以沙／彼烈」→「以撒／彼列」兩端一致、綱要不經 WebSocket、觀眾看不到設定、桌面與手機無橫向捲動；測試房間已刪除（200） | passed | 28c75a7 |
 | 綱要選檔（PR #18–#20） | 正式網址 fdce04b：靜態檔（含 pdf.js、tesseract.js、chi_tra）與 main 一致；瀏覽器實測文字型 PDF 0.7 秒、掃描型 PDF（測試檔 2 頁）瀏覽器 OCR 3.5 秒，皆分 2 篇、篇題與經節正確、無外部連線、無頁面錯誤；`smoke-cloudflare` passed。真實 TS26TRN 掃描檔的瀏覽器辨識速度／準確度 unrun（使用者決定不量測） | passed | fdce04b |
+| M2 經文 API（正式網址） | e5d9c28：health `verses:true`；`smoke-cloudflare`（`CAPTION_TEST_VERSE=弗1:23`）2 passed：房主可讀、無房間／無權杖／觀眾邀請／錯誤經節／已結束房間拒絕、`no-store`；抽查 創1:1、詩23:1、詩119:105、詩150:6、俄1:21、門1:25、猶1:24-25、約壹5:12、啟22:21、弗1:22-23、瑪4:6 共 13 節全有；測試房間已刪除 | passed | e5d9c28 |
 | 範例綱要 OCR | Colab `outline_ocr.ipynb` | **passed**：12 篇與篇題全對、無警告；經文 911 節 OCR 錯字率 0.27%（含印刷用字差異 1.06%） | 5eb91f6 |
 | Colab 筆記本測試 | `test.test_colab_notebook` | passed（6） | 2026-11-16 |
 
