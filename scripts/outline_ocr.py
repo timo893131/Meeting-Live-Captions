@@ -131,18 +131,19 @@ def render_pages(pdf_path, dpi=300):
             yield number, data
 
 
-def google_ocr(service, image_bytes, language='zh', retries=3):
+def google_ocr(service, image_bytes, language=None, retries=3):
     """Upload as a Google Doc with OCR, export plain text, delete the temporary Doc.
 
-    language: ISO 639-1 hint (Drive v3 rejects 'zh-TW'); the OCR keeps the characters on the page, so
-    Traditional Chinese stays Traditional."""
+    language: optional OCR hint. None lets Drive detect the language (it keeps the characters on the page, so
+    Traditional Chinese stays Traditional)."""
     from googleapiclient.http import MediaIoBaseUpload
     for attempt in range(retries):
         try:
             media = MediaIoBaseUpload(io.BytesIO(image_bytes), mimetype='image/jpeg', resumable=False)
+            options = {'ocrLanguage': language} if language else {}
             created = service.files().create(
                 body={'name': 'outline-ocr-temporary', 'mimeType': 'application/vnd.google-apps.document'},
-                media_body=media, ocrLanguage=language, fields='id').execute()
+                media_body=media, fields='id', **options).execute()
             try:
                 data = service.files().export(fileId=created['id'], mimeType='text/plain').execute()
             finally:
@@ -165,18 +166,32 @@ def ocr_text_to_page(text):
         {'text': line, 'y': index * step, 'x': 0, 'size': 0} for index, line in enumerate(lines)]}
 
 
-def run(pdf_path, cache_dir, output_dir, service, language='zh', log=print):
+def rejected_language(error):
+    """Drive answers 400 'Invalid Value' at location ocrLanguage for hints it does not accept (seen: zh-TW, zh)."""
+    status = getattr(getattr(error, 'resp', None), 'status', None)
+    return status == 400 and b'ocrLanguage' in (getattr(error, 'content', b'') or b'')
+
+
+def run(pdf_path, cache_dir, output_dir, service, language=None, log=print):
     pdf_path, cache_dir = Path(pdf_path), Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     pages = []
     for number, image in render_pages(pdf_path):
         cached = cache_dir/f'{number:03d}.txt'
         if not cached.exists():
-            cached.write_text(google_ocr(service, image, language), encoding='utf-8')
+            try:
+                text = google_ocr(service, image, language)
+            except Exception as error:
+                if not (language and rejected_language(error)):
+                    raise
+                log(f'Drive 不接受語言提示 {language!r}，改用自動偵測語言')
+                language = None
+                text = google_ocr(service, image, language)
+            cached.write_text(text, encoding='utf-8')
             log(f'第 {number} 頁 OCR 完成（{len(image) // 1000} KB）')
         pages.append(ocr_text_to_page(cached.read_text(encoding='utf-8')))
     report = outline.convert(pdf_path, output_dir, pages=pages, checks=check_messages)
-    report['ocr'] = {'engine': 'google-drive', 'language': language, 'cache': str(cache_dir)}
+    report['ocr'] = {'engine': 'google-drive', 'language': language or 'auto', 'cache': str(cache_dir)}
     (Path(output_dir)/f'{pdf_path.stem}.report.json').write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return report

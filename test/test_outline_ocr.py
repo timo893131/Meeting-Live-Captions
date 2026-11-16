@@ -60,7 +60,7 @@ class OutlineOcrTests(unittest.TestCase):
         texts = [PAGE_ONE, PAGE_TWO, PAGE_THREE]
         calls = []
 
-        def fake_ocr(service, image, language='zh'):
+        def fake_ocr(service, image, language=None):
             calls.append(image)
             return texts[len(calls) - 1]
 
@@ -85,7 +85,7 @@ class OutlineOcrTests(unittest.TestCase):
             self.assertEqual([r['reference'] for r in report['invalid_references']], ['弗七3'])
             self.assertIn(('神的經論', '神的經綸'), [(s['ocr'], s['term']) for s in report['term_suspects']])
             saved = json.loads((folder/'out'/'outline.report.json').read_text(encoding='utf-8'))
-            self.assertEqual(saved['ocr'], {'engine': 'google-drive', 'language': 'zh', 'cache': str(folder/'cache')})
+            self.assertEqual(saved['ocr'], {'engine': 'google-drive', 'language': 'auto', 'cache': str(folder/'cache')})
 
     @unittest.skipUnless(importlib.util.find_spec('googleapiclient'), 'google-api-python-client not installed')
     def test_google_ocr_sends_iso_language_and_does_not_retry_client_errors(self):
@@ -104,7 +104,7 @@ class OutlineOcrTests(unittest.TestCase):
                 self.fail = fail
 
             def create(self, **kwargs):
-                calls.append(('create', kwargs['ocrLanguage'], kwargs['body']['mimeType']))
+                calls.append(('create', kwargs.get('ocrLanguage'), kwargs['body']['mimeType']))
                 if self.fail:
                     def error():
                         raise HttpError(mock.Mock(status=400, reason='Invalid Value'), b'{}')
@@ -121,13 +121,47 @@ class OutlineOcrTests(unittest.TestCase):
 
         service = mock.Mock(files=lambda: Files(fail=False))
         self.assertEqual(outline_ocr.google_ocr(service, b'jpeg'), '第一篇\n')
-        self.assertEqual(calls, [('create', 'zh', 'application/vnd.google-apps.document'), ('export', 'text/plain'),
+        self.assertEqual(calls, [('create', None, 'application/vnd.google-apps.document'), ('export', 'text/plain'),
                                  ('delete', 'doc')])
         calls.clear()
         with mock.patch.object(outline_ocr.time, 'sleep') as sleep, self.assertRaises(HttpError):
             outline_ocr.google_ocr(mock.Mock(files=lambda: Files(fail=True)), b'jpeg')
         self.assertEqual(len(calls), 1)
         sleep.assert_not_called()
+
+    def test_run_drops_rejected_language_hint_and_keeps_going(self):
+        rejected = Exception('400')
+        rejected.resp = mock.Mock(status=400)
+        rejected.content = b'{"location": "ocrLanguage", "message": "Invalid Value"}'
+        seen = []
+
+        def fake_ocr(service, image, language=None):
+            seen.append(language)
+            if language:
+                raise rejected
+            return PAGE_THREE
+
+        messages = []
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            with mock.patch.object(outline_ocr, 'render_pages', return_value=[(1, b'a'), (2, b'b')]), \
+                    mock.patch.object(outline_ocr, 'google_ocr', side_effect=fake_ocr):
+                report = outline_ocr.run(folder/'o.pdf', folder/'cache', folder/'out', None, language='zh-TW',
+                                         log=messages.append)
+        self.assertEqual(seen, ['zh-TW', None, None])  # 第一頁被拒後改自動偵測，之後不再送語言提示
+        self.assertEqual(report['ocr']['language'], 'auto')
+        self.assertIn('自動偵測', messages[0])
+
+    def test_other_client_errors_are_not_hidden(self):
+        other = Exception('403')
+        other.resp = mock.Mock(status=403)
+        other.content = b'{"reason": "insufficientPermissions"}'
+        with tempfile.TemporaryDirectory() as folder:
+            folder = Path(folder)
+            with mock.patch.object(outline_ocr, 'render_pages', return_value=[(1, b'a')]), \
+                    mock.patch.object(outline_ocr, 'google_ocr', side_effect=other), self.assertRaises(Exception) as caught:
+                outline_ocr.run(folder/'o.pdf', folder/'cache', folder/'out', None, language='zh', log=lambda *_: None)
+        self.assertIs(caught.exception, other)
 
     @unittest.skipUnless(importlib.util.find_spec('pymupdf'), 'PyMuPDF not installed')
     def test_rendered_pages_fit_drive_ocr_limit(self):
