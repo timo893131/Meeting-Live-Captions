@@ -153,7 +153,10 @@ def build_messages(pages, stats):
                 current = {'kind': 'scripture'}
                 continue
             level = line_level(text)
-            heading = body_size and line['size'] >= body_size * 1.15
+            if body_size:
+                heading = line['size'] >= body_size * 1.15
+            else:  # OCR 文字沒有字級：「第X篇」後第一行沒有標號的字就是篇題
+                heading = message()['number'] is not None and not message()['title']
             if level:
                 current = {'kind': 'item', 'level': level, 'text': text}
                 message()['items'].append(current)
@@ -197,7 +200,8 @@ def message_summary(message):
     }
 
 
-def convert(pdf_path, output_dir, pages=None):
+def convert(pdf_path, output_dir, pages=None, checks=None):
+    """pages: precomputed lines (e.g. from OCR) instead of the PDF text layer; checks(messages) → dict merged into the report."""
     pdf_path, output_dir = Path(pdf_path), Path(output_dir)
     stats = Counter(private_use_chars=0, normalized_chars=0, running_lines_removed=0, toc_lines_skipped=0)
     pages = extract_pages(pdf_path) if pages is None else pages
@@ -227,6 +231,10 @@ def convert(pdf_path, output_dir, pages=None):
         'source': pdf_path.name, 'pages': len(pages), 'pages_without_text': empty, 'body_font_size': body_size,
         **dict(stats), 'messages': [message_summary(m) for m in messages], 'warnings': warnings,
     }
+    if checks:
+        extra = checks(messages)
+        report['warnings'] += extra.pop('warnings', [])
+        report.update(extra)
     (output_dir/f'{name}.report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n',
                                                  encoding='utf-8')
     return report
