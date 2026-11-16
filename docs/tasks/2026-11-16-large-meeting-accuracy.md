@@ -28,7 +28,8 @@
 | 範例綱要轉換（文字層） | Colab `outline_to_markdown.ipynb` | passed（執行成功；87 頁無文字層） | 1903508 |
 | 綱要 OCR | `test.test_outline_ocr`（假 OCR／假 Drive 服務；真 PDF 轉圖） | passed | 253ab13 |
 | M1 單元／UI 測試 | `npm test`（56）、`ui-smoke`（18，含綱要不經 WebSocket）、Python 49 | passed | b926ac6 |
-| M1 開發集 | Colab `outline_check.ipynb` | unrun | b926ac6 |
+| M1 開發集（第 1 輪） | Colab `outline_check.ipynb` | failed：專名 805→815（門檻 +31）、改壞 23／修好 53；原文誤改 0；本場新詞 195→214/244、多出 0。主因：near 蓋掉聲調容錯（汴亞敏）＋全形數字 | b926ac6 |
+| M1 開發集（第 2 輪） | 同上 | unrun | b291e7f |
 | 範例綱要 OCR | Colab `outline_ocr.ipynb` | **passed**：12 篇與篇題全對、無警告；經文 911 節 OCR 錯字率 0.27%（含印刷用字差異 1.06%） | 5eb91f6 |
 | Colab 筆記本測試 | `test.test_colab_notebook` | passed（6） | 2026-11-16 |
 
