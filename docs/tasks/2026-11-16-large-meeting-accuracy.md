@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | M0 收尾（同音放寬第 3 輪、PR #16） | 2026-11-16：Drive 最新結果 `20261114-135356-near` 是**第 2 輪**（早於第 3 輪 commit 121384b；正確全文多改 664 處）。第 3 輪 unrun。`test_colab_notebook` 既存失敗已修（套用 b316493）。 | 使用者說已跑，但 2026-11-16 Drive 上找不到新的 `*-near` 結果（最新仍是第 2 輪）→ 請使用者確認第 4、5 格是否有錯誤 |
 | M1 綱要輸入與本場詞表 | 實作完成（b926ac6）：`public/outline.js`、設定「本場綱要」、`evaluate_meet.py --outline`；綱要轉換見 [../outline-conversion.md](../outline-conversion.md) | **已上線**（PR #17 合併 28c75a7，2026-11-16 正式網址驗證通過） | M2 |
-| M2 經文對齊 | 第一步已上線（PR #21，e5d9c28）：R2 `meeting-captions-scripture` 已上傳恢復本 1,189 章／31,092 節（sha256 af85fa76…）；`/api/verses` 只給房主 | 第二步：`public/verse-align.js`＋開發集量測 |
+| M2 經文對齊 | 第一步已上線（PR #21）；第二步實作完成（8ad5dd9）：`public/verse-align.js`（讀音局部比對，≥8 字、相符 ≥0.8 才換；標經節）、房主廣播房間取經文、`evaluate_meet.py --verses-archive` | 使用者跑 `notebooks/verse_align_check.ipynb`（GPU）→ 依門檻決定是否開 PR |
 | M3 訓練資料 | 未開始 | — |
 | M4 微調 | 未開始 | — |
 | M5 Modal 部署 | 未開始 | 使用者申請 Modal |
