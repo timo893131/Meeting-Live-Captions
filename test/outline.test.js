@@ -98,6 +98,10 @@ test('a whole-training Markdown file splits into its messages', () => {
   assert.ok(parts[0].text.startsWith('## 第一篇') && parts[0].text.includes('讀經：太五1') && !parts[0].text.includes('乙'));
   assert.equal(parse(parts[1].text).title, '新郎');
   assert.deepEqual(splitMessages('## 第一篇　只有一篇\n- 壹 甲'), [{label: '', text: '## 第一篇　只有一篇\n- 壹 甲'}]);
+  // Plain text from a PDF: series name before 第X篇, title on the next line; continuation and body lines are not headers.
+  const pdf = splitMessages('信徒(一) 第一篇\n門徒、信徒\n讀經:太五1\n壹 在第一篇裏我們看見門徒\n第一篇(續)\n貳 乙\n信徒(一) 第二篇\n永遠的生命\n壹 丙');
+  assert.deepEqual(pdf.map(p => p.label), ['第一篇　門徒、信徒', '第二篇　永遠的生命']);
+  assert.ok(pdf[0].text.includes('貳 乙') && !pdf[0].text.includes('丙'));
 });
 
 test('book tables agree with the Python converters', () => {

@@ -79,16 +79,20 @@ export function unknownRuns(run, dictionary) {
 }
 
 /**
- * A file with several messages (the converter's whole-training Markdown: one 「## 第X篇　篇題」 section per
- * message) → [{label, text}]; a file with one message → one part.
+ * A file with several messages (the converter's whole-training Markdown with one 「## 第X篇　篇題」 section per
+ * message, or the text of a whole-training PDF) → [{label, text}]; a file with one message → one part.
  */
 export function splitMessages(text) {
   const lines = String(text || '').split(/\r?\n/), parts = [];
   let current = null;
   for (const line of lines) {
-    const heading = line.match(/^##\s+(第\s*[一二三四五六七八九十百\d]+\s*篇.*)$/);
-    if (heading) { current = {label: heading[1].trim(), lines: [line]}; parts.push(current); }
-    else if (current) current.lines.push(line);
+    // 「## 第一篇　篇題」 (converter Markdown) or plain text from a PDF: 「第一篇 篇題」「信徒(一) 第一篇」 (title on the next line).
+    const heading = line.match(/^##\s+(第\s*[一二三四五六七八九十百\d]+\s*篇.*)$/) ||
+      line.match(/^(?:[^，。；：,;:\s]{1,12}[\s　]+)?(第\s*[一二三四五六七八九十百\d]+\s*篇(?:[\s　]+[^（(].{0,40})?)$/);
+    if (heading) { current = {label: heading[1].trim(), lines: [line]}; parts.push(current); continue; }
+    if (!current) continue;
+    current.lines.push(line);
+    if (/篇$/.test(current.label) && line.trim()) current.label += '　' + line.trim();  // title on its own line
   }
   if (parts.length < 2) return [{label: '', text: String(text || '').trim()}];
   return parts.map(part => ({label: part.label, text: part.lines.join('\n').trim()}));
