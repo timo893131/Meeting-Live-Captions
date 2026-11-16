@@ -63,6 +63,23 @@ def clean_reference(text):
     return '\n'.join(lines)
 
 
+OUTLINE_HEADING = re.compile(r'^\s*(?:[（(][一二三四五六七八九十\d０-９a-zａ-ｚ]+[)）]|[壹貳參肆伍陸柒捌玖拾]+|[一二三四五六七八九十]+)[\s\u3000、]')
+
+
+def simulated_outline(reference_text):
+    """What a host could paste before the meeting, built from a Life-Study message without its body: the title
+    (first line), the subheadings (lines starting with an outline marker, at most 60 chars) and every verse
+    reference in the message (spec-large-meeting.md M1)."""
+    sys.path.insert(0, str(ROOT/'scripts'))
+    from outline_pdf_to_md import REF_RE
+    lines = [line.strip() for line in reference_text.splitlines() if line.strip()]
+    if not lines:
+        return ''
+    headings = [line for line in lines[1:] if OUTLINE_HEADING.match(line) and len(line) <= 60]
+    refs = list(dict.fromkeys(REF_RE.findall(reference_text)))
+    return '\n'.join([lines[0], '讀經：' + '，'.join(refs)] + headings)
+
+
 HYMN_STANZA = re.compile(r'^\s*(?:[一二三四五六七八九十]+[\u3000 ]|（副）)')
 
 
@@ -177,16 +194,29 @@ def bag_counts(hypothesis, spans):
     return out
 
 
-def corrections(segments, glossary=None, term_set='all', near=False):
+def corrections(segments, glossary=None, term_set='all', near=False, outline=None):
     payload = json.dumps(dict(segments=segments, term_set=term_set, near=near,
-                              **({'glossary': glossary} if glossary is not None else {})))
+                              **({'glossary': glossary} if glossary is not None else {}),
+                              **({'outline': outline} if outline else {})))
     # NODE_BINARY lets Colab use a pinned Node from the nodejs-wheel-binaries package.
     result = subprocess.run([os.environ.get('NODE_BINARY', 'node'), str(ROOT/'scripts/apply-corrections.mjs')], input=payload, text=True,
                             capture_output=True, check=True)
     return json.loads(result.stdout)
 
 
-def score_variants(name, segments, reference_variants, spans_by_variant, converter, near=False):
+def outline_term_counts(reference, hypothesis, terms):
+    """This meeting's new outline terms: times in the reference, found (min per term), extra in the hypothesis."""
+    wanted, found = {}, {}
+    for _s, _e, term in term_spans(reference, sorted(terms, key=len, reverse=True)):
+        wanted[term] = wanted.get(term, 0) + 1
+    for _s, _e, term in term_spans(hypothesis, sorted(terms, key=len, reverse=True)):
+        found[term] = found.get(term, 0) + 1
+    return dict(outline_term_occurrences=sum(wanted.values()),
+                outline_terms_bag_found=sum(min(n, found.get(t, 0)) for t, n in wanted.items()),
+                outline_terms_bag_extra=sum(max(0, n - wanted.get(t, 0)) for t, n in found.items()))
+
+
+def score_variants(name, segments, reference_variants, spans_by_variant, converter, near=False, outline=None):
     # As on the website (the Worker converts Whisper's text to Traditional first), corrections run on
     # Traditional text; otherwise every Simplified character would count as a same-sound "fix".
     traditional = [converter.convert(s) for s in segments]
@@ -197,19 +227,31 @@ def score_variants(name, segments, reference_variants, spans_by_variant, convert
              'phonetic_core': ''.join(core['phonetic']), 'phonetic': ''.join(out['phonetic'])}
     if near:  # candidate rule: near sounds (tone, Taiwan mergers); compared with 'phonetic' (the website today)
         texts['phonetic_near'] = ''.join(corrections(traditional, near=True)['phonetic'])
+    outline_terms = []
+    if outline:  # this meeting's outline (M1); compared with 'phonetic' (the website today)
+        with_outline = corrections(traditional, outline=outline)
+        texts['phonetic_outline'] = ''.join(with_outline['phonetic'])
+        outline_terms = with_outline['outline']['terms']
     result = dict(condition=name, segments=len(segments),
                   phonetic_changes=sum(len(c) for c in out['changes']), variants={})
+    if outline:
+        result['outline'] = dict(terms=outline_terms, known=with_outline['outline']['known'],
+                                 refs=with_outline['outline']['refs'], title=with_outline['outline']['title'])
     for ref_name, reference in reference_variants.items():
-        previous = None
+        previous, kept = None, {}
         for variant, text in texts.items():
             hypothesis = normalize(text, converter)
             if ref_name == 'speech_only':
                 hypothesis = cut_after_reference_end(reference, hypothesis)
             metrics, ok = score(reference, hypothesis, spans_by_variant[ref_name])
-            if previous is not None:
-                metrics['chars_fixed_vs_previous'] = sum(1 for a, b in zip(previous, ok) if b and not a)
-                metrics['chars_broken_vs_previous'] = sum(1 for a, b in zip(previous, ok) if a and not b)
-            previous = ok
+            if outline:
+                metrics.update(outline_term_counts(reference, hypothesis, outline_terms))
+            # Candidates (near sounds, the outline) are each compared with the website today ('phonetic').
+            base = kept.get('phonetic') if variant in ('phonetic_near', 'phonetic_outline') else previous
+            if base is not None:
+                metrics['chars_fixed_vs_previous'] = sum(1 for a, b in zip(base, ok) if b and not a)
+                metrics['chars_broken_vs_previous'] = sum(1 for a, b in zip(base, ok) if a and not b)
+            previous = kept[variant] = ok
             result['variants'][f'{ref_name}/{variant}'] = metrics
     script = normalize(texts['raw'])
     result['raw_simplified_ratio'] = round(sum(converter.convert(c) != c for c in script)/len(script), 4) if script else None
@@ -405,6 +447,10 @@ def main():
     parser.add_argument('--development', action='store_true', help='Development data (e.g. Bible readings), not a sealed test')
     parser.add_argument('--phonetic-near', action='store_true',
                         help='Also score the candidate same-sound rule with near sounds (variant phonetic_near, vs phonetic)')
+    parser.add_argument('--outline', action='store_true',
+                        help="Also score this meeting's outline (variant phonetic_outline, vs phonetic): <pair>.outline.md "
+                        'when present, otherwise (development only) a simulated outline from the reference: title, '
+                        'subheadings and verse references, no body text')
     parser.add_argument('--conditions', default='full,fixed15,vad15',
                         help='full (whole file), full_prompt (+Traditional prompt), fixed<N> / vad<N> (N-second live chunks), '
                         'cfvad<N> / cffixed<N> (the same chunks through Cloudflare Workers AI)')
@@ -450,7 +496,7 @@ def main():
     report = dict(created_at=datetime.now(timezone.utc).isoformat(timespec='seconds'), sealed_test=not args.development,
                   model=args.model_label, model_bin_sha256=sha256_file(Path(args.model_dir)/'model.bin') if args.model_dir else None,
                   normalizer='NFC + OpenCC s2tw (hypothesis) + keep CJK/Latin/digits, lowercase',
-                  phonetic_near=args.phonetic_near,
+                  phonetic_near=args.phonetic_near, outline=args.outline,
                   code_files={p: sha256_file(ROOT/p) for p in ['glossary.js', 'public/phonetic.js', 'public/church-terms.js',
                                                               'public/pinyin-zh.js', 'scripts/evaluate_meet.py']},
                   workers_ai_model=CF_MODEL if 'cf' in args.conditions else None,
@@ -462,9 +508,29 @@ def main():
         if speech != reference_text and not args.loose_reference:  # sung hymn: also score the spoken part only (recognized hymn text not counted)
             references['speech_only'] = normalize(speech)
         spans = {name: category_spans(text, terms, names) for name, text in references.items()}
+        outline, outline_check = None, {}
+        if args.outline:
+            given = meet/f'{pair}.outline.md'
+            if given.exists():
+                outline = given.read_text(encoding='utf-8-sig')
+            elif args.development:
+                outline = simulated_outline(reference_text)
+                output.mkdir(parents=True, exist_ok=True)
+                (output/f'{pair}.outline.md').write_text(outline + '\n', encoding='utf-8')
+            else:
+                raise SystemExit(f'--outline 在封存測試需要真實綱要 {given.name}（不可用參考文字模擬）')
+            # False edits: run the corrections over the correct text itself; every change the outline adds is wrong.
+            lines = [line for line in reference_text.splitlines() if line.strip()]
+            plain, with_outline = corrections(lines), corrections(lines, outline=outline)
+            before = {(i, c['from'], c['to']) for i, changes in enumerate(plain['changes']) for c in changes}
+            extra = [(i, c['from'], c['to']) for i, changes in enumerate(with_outline['changes']) for c in changes
+                     if (i, c['from'], c['to']) not in before]
+            outline_check = dict(outline_false_edits=len(extra),
+                                 outline_false_edit_examples=[f'{a}→{b}' for _i, a, b in extra[:20]])
         entry = dict(id=pair, audio_sha256=sha256_file(meet/f'{pair}.mp3'), reference_sha256=sha256_file(meet/f'{pair}.txt'),
                      reference_chars=len(references['full']), term_occurrences=len(spans['full']['church']),
                      name_occurrences=len(spans['full']['names']), conditions=[])
+        entry.update(outline_check)
         print(f'[{pair}] 參考文字 {entry["reference_chars"]} 字、教會專名 {entry["term_occurrences"]} 處、'
               f'人名地名 {entry["name_occurrences"]} 處', flush=True)
         if args.model_dir or args.reuse or re.search(r'\bcf', args.conditions):
@@ -502,7 +568,7 @@ def main():
                         raise SystemExit(3)
                 else:
                     raise SystemExit(f'Unknown condition: {condition}')
-                result, out = score_variants(name, texts, references, spans, converter, near=args.phonetic_near)
+                result, out = score_variants(name, texts, references, spans, converter, near=args.phonetic_near, outline=outline)
                 result.update(timing, prompt=prompt)
                 if reused:
                     result['reused_from'] = str(cached.parent)
@@ -519,7 +585,7 @@ def main():
         chrome = meet/f'{pair}.chrome.txt'
         if chrome.exists():
             texts = chrome_segments(chrome)
-            result, out = score_variants('chrome_export', texts, references, spans, converter, near=args.phonetic_near)
+            result, out = score_variants('chrome_export', texts, references, spans, converter, near=args.phonetic_near, outline=outline)
             result['source_sha256'] = sha256_file(chrome)
             entry['conditions'].append(result)
             (output/f'{pair}.chrome_export.json').write_text(json.dumps(dict(raw=texts, **out), ensure_ascii=False, indent=1), encoding='utf-8')
@@ -582,6 +648,31 @@ def main():
                  '| 條件 | 版本 | 教會專名找到 | 多出 | 人名地名找到 | 多出 |', '| --- | --- | --- | --- | --- | --- |']
         for (condition, variant), t in bag.items():
             rows.append(f'| {condition} | {variant} | {t[0]}/{t[1]} | {t[2]} | {t[3]}/{t[4]} | {t[5]} |')
+    if args.outline:
+        own = {}
+        for entry in report['pairs']:
+            for cond in entry['conditions']:
+                for key, m in cond['variants'].items():
+                    if key.startswith('full/') and key.split('/')[1] in ('phonetic', 'phonetic_outline'):
+                        t = own.setdefault((cond['condition'], key.split('/')[1]), [0, 0, 0])
+                        for i, k in enumerate(['outline_terms_bag_found', 'outline_term_occurrences', 'outline_terms_bag_extra']):
+                            t[i] += m[k]
+        rows += ['', '本場新詞（綱要抽出、內建詞表沒有的詞；phonetic＝網站現在，phonetic_outline＝加上綱要）', '',
+                 '| 條件 | 版本 | 找到 | 多出 |', '| --- | --- | --- | --- |']
+        for (condition, variant), t in own.items():
+            rows.append(f'| {condition} | {variant} | {t[0]}/{t[1]} | {t[2]} |')
+        false_edits = sum(entry.get('outline_false_edits', 0) for entry in report['pairs'])
+        rows += ['', f'正確原文的誤改（拿參考文字本身跑校正，綱要多改的地方都是錯的）：{false_edits} 處', '']
+        for entry in report['pairs']:
+            if entry.get('outline_false_edit_examples'):
+                rows.append(f"- {entry['id']}：{'、'.join(entry['outline_false_edit_examples'])}")
+        rows += ['', '每篇綱要：新詞／綱要內建專名（相近讀音）／經節', '']
+        for entry in report['pairs']:
+            for cond in entry['conditions'][:1]:
+                o = cond.get('outline')
+                if o:
+                    rows.append(f"- {entry['id']}：新詞 {len(o['terms'])}（{'、'.join(o['terms'][:12])}）；"
+                                f"專名 {len(o['known'])}；經節 {o['refs']}")
     summary = '\n'.join(rows)
     (output/'summary.md').write_text(summary+'\n', encoding='utf-8')
     print('\n'+summary)

@@ -188,6 +188,32 @@ test('same-sound church-term correction applies to captions, follows the toggle 
   await expect(page.locator('#phonetic')).not.toBeChecked();
 });
 
+test('this meeting\'s outline corrects captions, stays in the host browser and is never sent to the room', async t => {
+  const {page} = await fixture(t, context => context.addInitScript(() => {
+    const send = WebSocket.prototype.send;
+    window.__sent = [];
+    WebSocket.prototype.send = function (data) { window.__sent.push(String(data)); return send.call(this, data); };
+  }));
+  await hostRoom(page);
+  await page.locator('#settings > summary').click();
+  await expect(page.locator('#outlineSummary')).toHaveText('未輸入綱要。');
+  const outline = '## 第一篇　門徒與基督徒\n\n讀經：創二一3\n\n- 壹 以撒是應許之子—創二一3。\n- 貳 基督對彼列有甚麼和諧。\n- 參 彼列是撒但。';
+  await page.locator('#outline').fill(outline);
+  await expect(page.locator('#outlineSummary')).toContainText('篇題：門徒與基督徒');
+  await expect(page.locator('#outlineSummary')).toContainText('以撒');
+  await expect(page.locator('#outlineSummary')).toContainText('本場新詞');
+  await start(page);
+  await page.evaluate(() => window.__speech.emit('亞伯拉罕生以沙'));  // near sound: only with this outline
+  await expect(page.locator('#captions')).toContainText('亞伯拉罕生以撒');
+  expect(await page.evaluate(() => window.__sent.join('\n'))).not.toContain('門徒與基督徒');
+  await page.reload();
+  await page.locator('#settings > summary').click();
+  await expect(page.locator('#outline')).toHaveValue(outline);
+  await page.locator('#clearOutline').click();
+  await expect(page.locator('#outline')).toHaveValue('');
+  await expect(page.locator('#outlineSummary')).toHaveText('未輸入綱要。');
+});
+
 function silentWav(seconds) {
   const rate = 16000, samples = rate*seconds, wav = Buffer.alloc(44 + samples*2);
   wav.write('RIFF', 0); wav.writeUInt32LE(36 + samples*2, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
