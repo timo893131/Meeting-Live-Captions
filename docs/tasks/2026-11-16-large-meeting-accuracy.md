@@ -12,7 +12,7 @@
 | 里程碑 | 狀態 | 下一步 |
 | --- | --- | --- |
 | M0 收尾（同音放寬第 3 輪、PR #16） | 2026-11-16：Drive 最新結果 `20261114-135356-near` 是**第 2 輪**（早於第 3 輪 commit 121384b；正確全文多改 664 處）。第 3 輪 unrun。`test_colab_notebook` 既存失敗已修（套用 b316493）。 | 使用者說已跑，但 2026-11-16 Drive 上找不到新的 `*-near` 結果（最新仍是第 2 輪）→ 請使用者確認第 4、5 格是否有錯誤 |
-| M1 綱要輸入與本場詞表 | 實作完成（b926ac6）：`public/outline.js`、設定「本場綱要」、`evaluate_meet.py --outline`；綱要轉換見 [../outline-conversion.md](../outline-conversion.md) | 使用者跑 `notebooks/outline_check.ipynb`（開發集）→ 依門檻決定是否開 PR |
+| M1 綱要輸入與本場詞表 | 實作完成（b926ac6）：`public/outline.js`、設定「本場綱要」、`evaluate_meet.py --outline`；綱要轉換見 [../outline-conversion.md](../outline-conversion.md) | 第 2 輪只差「教會專名 +3%」一項；等使用者決定是否以「不改壞＋本場新詞」標準上線 |
 | M2 經文對齊 | 未開始；2026-11-16 使用者**同意**恢復本經文存 Cloudflare R2 私人 bucket、只給房主讀取 | M1 之後 |
 | M3 訓練資料 | 未開始 | — |
 | M4 微調 | 未開始 | — |
@@ -29,7 +29,7 @@
 | 綱要 OCR | `test.test_outline_ocr`（假 OCR／假 Drive 服務；真 PDF 轉圖） | passed | 253ab13 |
 | M1 單元／UI 測試 | `npm test`（56）、`ui-smoke`（18，含綱要不經 WebSocket）、Python 49 | passed | b926ac6 |
 | M1 開發集（第 1 輪） | Colab `outline_check.ipynb` | failed：專名 805→815（門檻 +31）、改壞 23／修好 53；原文誤改 0；本場新詞 195→214/244、多出 0。主因：near 蓋掉聲調容錯（汴亞敏）＋全形數字 | b926ac6 |
-| M1 開發集（第 2 輪） | 同上 | unrun | b291e7f |
+| M1 開發集（第 2 輪） | 同上（run 20261116-064428-outline） | 教會專名 805→815（**未達 +31 門檻**）、多出 63→63；人名地名 368→369、多出 89→97；修好 36／改壞 2（達 ≤1/5）；CER 47.00%→46.95%；本場新詞 229→248/287、多出 0；正確原文誤改 0 | b291e7f |
 | 範例綱要 OCR | Colab `outline_ocr.ipynb` | **passed**：12 篇與篇題全對、無警告；經文 911 節 OCR 錯字率 0.27%（含印刷用字差異 1.06%） | 5eb91f6 |
 | Colab 筆記本測試 | `test.test_colab_notebook` | passed（6） | 2026-11-16 |
 
