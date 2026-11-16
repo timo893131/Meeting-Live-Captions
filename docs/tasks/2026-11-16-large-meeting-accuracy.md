@@ -27,7 +27,7 @@
 | 綱要轉換 | `test.test_outline_pdf_to_md`（含 PyMuPDF 產生的真 PDF） | passed | 1903508 |
 | 範例綱要轉換（文字層） | Colab `outline_to_markdown.ipynb` | passed（執行成功；87 頁無文字層） | 1903508 |
 | 綱要 OCR | `test.test_outline_ocr`（假 OCR／假 Drive 服務；真 PDF 轉圖） | passed | 253ab13 |
-| 範例綱要 OCR | Colab `outline_ocr.ipynb` | 第 3 次 passed（87 頁 OCR 完成；字很準，版面分篇錯）→ 修正版面規則，加恢復本比對，待重跑（只讀快取） | 9dc4715 |
+| 範例綱要 OCR | Colab `outline_ocr.ipynb` | 第 4 次 passed：12 篇分對、經文錯字率初算 3.68%（高估，見 outline-conversion.md）→ 修正拆行、詩篇、異體字，待重跑（只讀快取） | 5eb91f6 |
 | Colab 筆記本測試 | `test.test_colab_notebook` | passed（6） | 2026-11-16 |
 
 ## 交接
