@@ -13,7 +13,8 @@ test('room authentication, live captions, history, QR and closure', {timeout:150
  const {server,wss}=createApp();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  t.after(async()=>{for(const client of wss.clients)client.terminate();await new Promise(resolve=>server.close(resolve));wss.close();});
  const base='http://127.0.0.1:'+server.address().port;
- assert.deepEqual(await (await fetch(base+'/api/health')).json(),{ok:true});
+ assert.deepEqual(await (await fetch(base+'/api/health')).json(),{ok:true,verses:false});
+ assert.equal((await fetch(base+'/api/verses?refs=弗1:23')).status,501);  // verse text: Cloudflare version only
  assert.match(await (await fetch(base)).text(),/聚會字幕/);
  const room=await (await fetch(base+'/api/rooms',{method:'POST'})).json();
  const open=async credentials=>{const ws=new WebSocket(base.replace('http','ws'));const next=inbox(ws);await once(ws,'open');ws.send(JSON.stringify({type:'join',room:room.id,...credentials}));return {ws,next};};

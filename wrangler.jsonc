@@ -18,6 +18,9 @@
     ]
   },
   "ai": {"binding": "AI"},
+  "r2_buckets": [
+    {"binding": "SCRIPTURE", "bucket_name": "meeting-captions-scripture"}
+  ],
   "migrations": [
     {"tag": "v1", "new_sqlite_classes": ["CaptionRoom", "CreateLimit"]},
     {"tag": "v2", "new_sqlite_classes": ["SpeechLimit"]}

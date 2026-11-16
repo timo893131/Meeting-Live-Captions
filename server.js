@@ -31,7 +31,9 @@ export function createApp() {
     for (const client of room.clients) client.close(1000);
     rooms.delete(id);
   }
-  app.get('/api/health', (req,res) => res.json({ok:true}));
+  app.get('/api/health', (req,res) => res.json({ok:true, verses:false}));
+  // Verse alignment text (M2) lives in the Cloudflare version's private R2 bucket only.
+  app.get('/api/verses', (req,res) => res.status(501).json({error:'經文對齊只在 Cloudflare 版提供。', code:'unavailable'}));
   app.post('/api/rooms', (req,res) => {
     if (limited('create:'+req.socket.remoteAddress,10)) return res.status(429).json({error:'建立太頻繁，請稍後再試。'});
     if (rooms.size >= 1000) return res.status(503).json({error:'房間已滿。'});
