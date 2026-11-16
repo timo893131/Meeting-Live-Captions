@@ -12,7 +12,7 @@
 | 里程碑 | 狀態 | 下一步 |
 | --- | --- | --- |
 | M0 收尾（同音放寬第 3 輪、PR #16） | 2026-11-16：Drive 最新結果 `20261114-135356-near` 是**第 2 輪**（早於第 3 輪 commit 121384b；正確全文多改 664 處）。第 3 輪 unrun。`test_colab_notebook` 既存失敗已修（套用 b316493）。 | 使用者說已跑，但 2026-11-16 Drive 上找不到新的 `*-near` 結果（最新仍是第 2 輪）→ 請使用者確認第 4、5 格是否有錯誤 |
-| M1 綱要輸入與本場詞表 | 前置完成：`scripts/outline_pdf_to_md.py`＋`notebooks/outline_to_markdown.ipynb`，方法見 [../outline-conversion.md](../outline-conversion.md)。範例 `ex_TS26TRN_zht.pdf` 87 頁全是圖片（無文字層）→ 新增 `scripts/outline_ocr.py`＋`notebooks/outline_ocr.ipynb`（Google 雲端硬碟 OCR＋自動檢查）。 | 使用者跑 `outline_ocr.ipynb` → 我讀 Markdown／報告，調整標號規則 → `public/outline.js` |
+| M1 綱要輸入與本場詞表 | 前置完成：`scripts/outline_pdf_to_md.py`＋`notebooks/outline_to_markdown.ipynb`，方法見 [../outline-conversion.md](../outline-conversion.md)。範例 `ex_TS26TRN_zht.pdf` 87 頁全是圖片（無文字層）→ 新增 `scripts/outline_ocr.py`＋`notebooks/outline_ocr.ipynb`（Google 雲端硬碟 OCR＋自動檢查）。 | 綱要轉換完成（outline-conversion.md）→ 開始 `public/outline.js`＋房主「本場綱要」輸入 |
 | M2 經文對齊 | 未開始；2026-11-16 使用者**同意**恢復本經文存 Cloudflare R2 私人 bucket、只給房主讀取 | M1 之後 |
 | M3 訓練資料 | 未開始 | — |
 | M4 微調 | 未開始 | — |
@@ -27,7 +27,7 @@
 | 綱要轉換 | `test.test_outline_pdf_to_md`（含 PyMuPDF 產生的真 PDF） | passed | 1903508 |
 | 範例綱要轉換（文字層） | Colab `outline_to_markdown.ipynb` | passed（執行成功；87 頁無文字層） | 1903508 |
 | 綱要 OCR | `test.test_outline_ocr`（假 OCR／假 Drive 服務；真 PDF 轉圖） | passed | 253ab13 |
-| 範例綱要 OCR | Colab `outline_ocr.ipynb` | 第 4 次 passed：12 篇分對、經文錯字率初算 3.68%（高估，見 outline-conversion.md）→ 修正拆行、詩篇、異體字，待重跑（只讀快取） | 5eb91f6 |
+| 範例綱要 OCR | Colab `outline_ocr.ipynb` | **passed**：12 篇與篇題全對、無警告；經文 911 節 OCR 錯字率 0.27%（含印刷用字差異 1.06%） | 5eb91f6 |
 | Colab 筆記本測試 | `test.test_colab_notebook` | passed（6） | 2026-11-16 |
 
 ## 交接
