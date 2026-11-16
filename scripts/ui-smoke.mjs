@@ -214,7 +214,7 @@ test('this meeting\'s outline corrects captions, stays in the host browser and i
   await expect(page.locator('#outlineSummary')).toHaveText('未輸入綱要。');
 });
 
-test('an outline file with several messages lets the host pick one; PDF gets a hint', async t => {
+test('an outline file with several messages lets the host pick one; a broken PDF gets a hint', async t => {
   const {page} = await fixture(t);
   await page.locator('#settings > summary').click();
   await expect(page.locator('#outlinePartLabel')).toBeHidden();
@@ -230,11 +230,30 @@ test('an outline file with several messages lets the host pick one; PDF gets a h
   await page.reload();
   await page.locator('#settings > summary').click();
   await expect(page.locator('#outlinePart')).toHaveValue('1');  // the whole file and the chosen message survive a reload
-  await page.locator('#outlineFile').setInputFiles({name: 'outline.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4')});
-  await expect(page.locator('#message')).toContainText('outline_ocr');
+  await page.locator('#outlineFile').setInputFiles({name: 'broken.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4')});
+  await expect(page.locator('#message')).toContainText('無法讀取這份 PDF');
   await expect(page.locator('#outline')).toHaveValue(/永遠的生命/);  // unchanged
   await page.locator('#clearOutline').click();
   await expect(page.locator('#outlinePartLabel')).toBeHidden();
+});
+
+test('a text PDF outline is read in the browser; a scanned PDF points to OCR', async t => {
+  const {page} = await fixture(t);
+  await page.locator('#settings > summary').click();
+  await page.locator('#outlineFile').setInputFiles('test/fixtures/outline-text.pdf');
+  await expect(page.locator('#message')).toContainText('共 2 篇', {timeout: 20000});
+  await expect(page.locator('#outlinePart option')).toHaveText(['第一篇　門徒與基督徒', '第二篇　永遠的生命']);
+  const first = await page.locator('#outline').inputValue();
+  assert.match(first, /以撒是應許之子/);
+  assert.match(first, /彼列是撒但的名稱/);  // the continued page stays with its message
+  assert.doesNotMatch(first, /冬季訓練|示範出版社|第一篇\(續\)|永遠的生命就是/);  // headers, footers, the next message
+  await expect(page.locator('#outlineSummary')).toContainText('篇題：門徒與基督徒');
+  await expect(page.locator('#outlineSummary')).toContainText('經節 4 處');  // 2 in the 讀經 line, 2 in the points
+  await page.locator('#outlinePart').selectOption({index: 1});
+  await expect(page.locator('#outlineSummary')).toContainText('篇題：永遠的生命');
+  await page.locator('#outlineFile').setInputFiles('test/fixtures/outline-scan.pdf');
+  await expect(page.locator('#message')).toContainText('掃描的圖片', {timeout: 20000});
+  await expect(page.locator('#outlineSummary')).toContainText('篇題：永遠的生命');  // the current outline stays
 });
 
 function silentWav(seconds) {

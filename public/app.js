@@ -766,12 +766,29 @@ $('outlineFile').onchange = async () => {
   const file = $('outlineFile').files[0];
   $('outlineFile').value = '';
   if (!file) return;
+  let text;
   if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
-    message('PDF 請先用 Colab 筆記本 outline_ocr 轉成 Markdown（.md），再選那個檔案。', 'info'); return;
+    if (file.size > 150_000_000) { message('PDF 太大（超過 150 MB）。', 'info'); return; }
+    message(`正在讀取「${file.name}」…（檔案只在這台電腦處理，不會上傳）`, 'info');
+    try {
+      const {pdfToText} = await import('/outline-pdf.js');
+      const pdf = await pdfToText(file, {onProgress: (n, total) => { $('outlineSummary').textContent = `正在讀取 PDF：第 ${n}／${total} 頁…`; }});
+      if (pdf.emptyPages > pdf.pages / 2) {
+        showOutlineSummary();
+        message(`這份 PDF 有 ${pdf.emptyPages}／${pdf.pages} 頁是掃描的圖片，沒有文字可讀。請先用 Colab 筆記本 outline_ocr 轉成 Markdown（.md），再選那個 .md 檔。`, 'info');
+        return;
+      }
+      text = pdf.text;
+    } catch (error) {
+      showOutlineSummary();
+      message('無法讀取這份 PDF（檔案可能損壞或有密碼）。可改用 Colab 筆記本 outline_ocr 轉成 Markdown。', 'info');
+      return;
+    }
+  } else {
+    if (file.size > 2_000_000) { message('檔案太大（超過 2 MB），請選單篇或整份訓練的綱要 Markdown。', 'info'); return; }
+    text = await file.text();
+    if (text.includes('\uFFFD')) { message('這個檔案不是 UTF-8 文字，請另存成 UTF-8 的 .txt 或 .md。', 'info'); return; }
   }
-  if (file.size > 2_000_000) { message('檔案太大（超過 2 MB），請選單篇或整份訓練的綱要 Markdown。', 'info'); return; }
-  const text = await file.text();
-  if (text.includes('\uFFFD')) { message('這個檔案不是 UTF-8 文字，請另存成 UTF-8 的 .txt 或 .md。', 'info'); return; }
   const parts = splitMessages(text);
   try { localStorage.setItem('meetingOutlineFile', parts.length > 1 ? text : ''); localStorage.setItem('meetingOutlinePart', '0'); } catch {}
   showOutlineParts(parts);
