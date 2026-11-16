@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import * as data from '../public/pinyin-zh.js';
 import {DEFAULT_TERMS, NEAR_SKIP, loadPinyin, phoneticCorrect} from '../public/phonetic.js';
 import {BOOK_ABBREVIATIONS, CHAPTERS} from '../public/bible-abbreviations.js';
-import {chineseNumber, correctionOptions, parseOutline, parseReferences, unknownRuns} from '../public/outline.js';
+import {chineseNumber, correctionOptions, parseOutline, parseReferences, splitMessages, unknownRuns} from '../public/outline.js';
 
 const common = new Set(data.COMMON.split('|'));
 const parse = (text, options = {}) => parseOutline(text, {common, known: DEFAULT_TERMS, ...options});
@@ -89,6 +89,15 @@ test('full-width verse digits and a title name used once', () => {
   assert.deepEqual(outline.refs.map(r => [r.book, r.chapter, r.verse, r.to]), [['拉', 1, 1, 4], ['代下', 36, 22, 23]]);
   assert.ok(outline.known.includes('以斯拉記'));
   assert.deepEqual(outline.terms, ['瑪拉坦尼']);  // the made-up title name, though only once; not 「下歸回」
+});
+
+test('a whole-training Markdown file splits into its messages', () => {
+  const file = '# ex\n\n## （篇題前的內容）\n\n封面\n\n## 第一篇　門徒\n\n讀經：太五1\n\n- 壹 甲\n\n## 第十二篇　新郎\n\n- 壹 乙\n';
+  const parts = splitMessages(file);
+  assert.deepEqual(parts.map(p => p.label), ['第一篇　門徒', '第十二篇　新郎']);
+  assert.ok(parts[0].text.startsWith('## 第一篇') && parts[0].text.includes('讀經：太五1') && !parts[0].text.includes('乙'));
+  assert.equal(parse(parts[1].text).title, '新郎');
+  assert.deepEqual(splitMessages('## 第一篇　只有一篇\n- 壹 甲'), [{label: '', text: '## 第一篇　只有一篇\n- 壹 甲'}]);
 });
 
 test('book tables agree with the Python converters', () => {

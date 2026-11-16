@@ -78,6 +78,22 @@ export function unknownRuns(run, dictionary) {
   return runs;
 }
 
+/**
+ * A file with several messages (the converter's whole-training Markdown: one 「## 第X篇　篇題」 section per
+ * message) → [{label, text}]; a file with one message → one part.
+ */
+export function splitMessages(text) {
+  const lines = String(text || '').split(/\r?\n/), parts = [];
+  let current = null;
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(第\s*[一二三四五六七八九十百\d]+\s*篇.*)$/);
+    if (heading) { current = {label: heading[1].trim(), lines: [line]}; parts.push(current); }
+    else if (current) current.lines.push(line);
+  }
+  if (parts.length < 2) return [{label: '', text: String(text || '').trim()}];
+  return parts.map(part => ({label: part.label, text: part.lines.join('\n').trim()}));
+}
+
 /** Same terms on every call for the same text (the host may paste a long outline: parse once, reuse). */
 let cache = {key: null, value: null};
 

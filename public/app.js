@@ -1,6 +1,6 @@
 import {defaultGlossary, startingGlossary, parseGlossary, correctText} from '/glossary.js';
 import {DEFAULT_TERMS, NEAR_SKIP, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '/phonetic.js';
-import {parseOutline, correctionOptions} from '/outline.js';
+import {parseOutline, correctionOptions, splitMessages} from '/outline.js';
 import {BIBLE_BOOKS, CORE_TERMS, LIFE_STUDY_TERMS, BIBLE_NAMES} from '/church-terms.js';
 import {ALWAYS_CORRECTED} from '/always-corrected.js';
 import {RATE, createSegmenter, startMicrophoneChunks, encodeWav, createOrderedQueue} from '/speech-chunker.js';
@@ -745,12 +745,50 @@ $('outline').oninput = () => {
     showOutlineSummary();
   }, 400);
 };
-$('clearOutline').onclick = () => {
-  $('outline').value = '';
-  try { localStorage.removeItem('meetingOutline'); } catch {}
-  showOutlineSummary(); message('已清除本場綱要。', 'info');
+function setOutline(text) {
+  $('outline').value = text;
+  try { localStorage.setItem('meetingOutline', text); } catch {}
+  showOutlineSummary();
+}
+// A file with several messages (the whole training) lists them; picking one loads only that message.
+let outlineParts = [];
+function showOutlineParts(parts, selected = 0) {
+  outlineParts = parts;
+  $('outlinePartLabel').hidden = parts.length < 2;
+  $('outlinePart').replaceChildren(...parts.map((part, index) => new Option(part.label, String(index), false, index === selected)));
+}
+$('outlinePart').onchange = () => {
+  const index = Number($('outlinePart').value);
+  setOutline(outlineParts[index]?.text || '');
+  try { localStorage.setItem('meetingOutlinePart', String(index)); } catch {}
 };
-try { $('outline').value = localStorage.getItem('meetingOutline') || ''; } catch {}
+$('outlineFile').onchange = async () => {
+  const file = $('outlineFile').files[0];
+  $('outlineFile').value = '';
+  if (!file) return;
+  if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
+    message('PDF 請先用 Colab 筆記本 outline_ocr 轉成 Markdown（.md），再選那個檔案。', 'info'); return;
+  }
+  if (file.size > 2_000_000) { message('檔案太大（超過 2 MB），請選單篇或整份訓練的綱要 Markdown。', 'info'); return; }
+  const text = await file.text();
+  if (text.includes('\uFFFD')) { message('這個檔案不是 UTF-8 文字，請另存成 UTF-8 的 .txt 或 .md。', 'info'); return; }
+  const parts = splitMessages(text);
+  try { localStorage.setItem('meetingOutlineFile', parts.length > 1 ? text : ''); localStorage.setItem('meetingOutlinePart', '0'); } catch {}
+  showOutlineParts(parts);
+  setOutline(parts[0].text);
+  message(parts.length > 1 ? `已載入「${file.name}」，共 ${parts.length} 篇；請在下方選當堂這一篇。` : `已載入「${file.name}」。`, 'success');
+};
+$('clearOutline').onclick = () => {
+  setOutline('');
+  showOutlineParts([]);
+  try { localStorage.removeItem('meetingOutline'); localStorage.removeItem('meetingOutlineFile'); } catch {}
+  message('已清除本場綱要。', 'info');
+};
+try {
+  $('outline').value = localStorage.getItem('meetingOutline') || '';
+  const file = localStorage.getItem('meetingOutlineFile');
+  if (file) showOutlineParts(splitMessages(file), Number(localStorage.getItem('meetingOutlinePart')) || 0);
+} catch {}
 if ($('outline').value.trim()) showOutlineSummary(); else $('outlineSummary').textContent = '未輸入綱要。';
 
 async function checkServerSpeech() {
