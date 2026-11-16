@@ -6,6 +6,11 @@ import {soundKeys} from './phonetic.js';
 
 export const MIN_CHARS = 8;         // at least this many Chinese chars of the caption must match a verse
 export const MIN_IDENTITY = 0.8;    // matching sounds / aligned length
+// Inside the matched part: no two non-matching chars in a row (the speaker inserted words, 「…無數第二小點他們…」,
+// or put a verse in their own words, 「大發熱心」 for 「大發妒忌」), and at most one per ten chars (a short phrase must
+// match exactly). Recognizer errors mostly sound the same (話行→畫形) and count as matches. (Life-Study dev set.)
+export const MAX_RUN = 1;
+export const PER_MISS = 10;
 const MATCH = 2, MISMATCH = -1, GAP = -2;
 const TRAILING = /^[，。；：！？、」』）)…—]+/;
 
@@ -62,22 +67,23 @@ function localAlign(a, b) {
     }
   }
   if (!best) return null;
-  let i = Math.floor(bestAt / width), j = bestAt % width, matches = 0;
+  let i = Math.floor(bestAt / width), j = bestAt % width, matches = 0, misses = 0, run = 0, longestRun = 0;
   const endA = i - 1, endB = j - 1;
   while (i > 0 && j > 0 && from[i * width + j]) {
     const move = from[i * width + j];
-    if (move === 1) { if (a[i - 1].key === b[j - 1].key) matches++; i--; j--; }
-    else if (move === 2) i--;
-    else j--;
+    const hit = move === 1 && a[i - 1].key === b[j - 1].key;
+    if (hit) { matches++; run = 0; } else { misses++; longestRun = Math.max(longestRun, ++run); }
+    if (move === 1) { i--; j--; } else if (move === 2) i--; else j--;
   }
-  return {score: best, a: [i, endA], b: [j, endB], matches};
+  return {score: best, a: [i, endA], b: [j, endB], matches, misses, longestRun};
 }
 
 /**
  * alignCaption(text, passages) → {text, label} when the caption reads a verse of the outline, else null.
  * Only the aligned part of the caption is replaced (with the verse text and its following punctuation).
  */
-export function alignCaption(text, passages, {minChars = MIN_CHARS, minIdentity = MIN_IDENTITY} = {}) {
+export function alignCaption(text, passages, {minChars = MIN_CHARS, minIdentity = MIN_IDENTITY, maxRun = MAX_RUN,
+  perMiss = PER_MISS} = {}) {
   const keys = soundKeys(text);
   if (keys.length < minChars || !passages?.length) return null;
   let best = null;
@@ -89,6 +95,7 @@ export function alignCaption(text, passages, {minChars = MIN_CHARS, minIdentity 
   const {passage, found} = best;
   const captionLength = found.a[1] - found.a[0] + 1, verseLength = found.b[1] - found.b[0] + 1;
   if (captionLength < minChars || found.matches / Math.max(captionLength, verseLength) < minIdentity) return null;
+  if (found.longestRun > maxRun || found.misses > Math.floor(Math.max(captionLength, verseLength) / perMiss)) return null;
   const chars = Array.from(text);
   const start = keys[found.a[0]].index, end = keys[found.a[1]].index;
   const verseChars = Array.from(passage.text);

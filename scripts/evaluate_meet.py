@@ -220,6 +220,21 @@ def outline_term_counts(reference, hypothesis, terms):
 MAX_VERSES = 300  # as the website asks /api/verses
 
 
+def judge_alignment(before, after, reference):
+    """One replaced caption against the reference: edits to fit it into the matching part of the reference, before
+    and after the replacement (better / same / worse). Spec M2: replacements must be the same or better >= 99%."""
+    from rapidfuzz import fuzz
+    from outline_ocr import fitting_distance
+    if not before or not after:
+        return dict(effect='same', edits_before=0, edits_after=0, reference='')
+    spot = fuzz.partial_ratio_alignment(after, reference)
+    start, end = max(0, spot.dest_start - len(before)), min(len(reference), spot.dest_end + len(before))
+    window = reference[start:end]
+    edits_before, edits_after = fitting_distance(before, window), fitting_distance(after, window)
+    effect = 'better' if edits_after < edits_before else 'worse' if edits_after > edits_before else 'same'
+    return dict(effect=effect, edits_before=edits_before, edits_after=edits_after, reference=window[len(before):len(before) + 60])
+
+
 def verse_refs(text):
     """Outline-style references with ranges (弗一22～23，三17，拉一１～４) → [(book, chapter, from, to)]."""
     from outline_pdf_to_md import REF_RE, BOOK_ABBREVIATIONS, CN_NUM, SINGLE_CHAPTER
@@ -282,9 +297,14 @@ def score_variants(name, segments, reference_variants, spans_by_variant, convert
                   phonetic_changes=sum(len(c) for c in out['changes']), variants={})
     if verses:
         done = [(i, a) for i, a in enumerate(alignments) if a]
-        result['verse_alignment'] = dict(verses=len(verses), segments_aligned=len(done), examples=[
-            dict(segment=i, label=a['label'], identity=a['identity'], before=with_outline['phonetic'][i][:60],
-                 after=with_outline['aligned'][i][:60]) for i, a in done[:30]])
+        judged = [judge_alignment(normalize(with_outline['phonetic'][i], converter), normalize(with_outline['aligned'][i], converter),
+                                  reference_variants['full']) for i, _a in done]
+        examples = [dict(segment=i, label=a['label'], identity=a['identity'], before=with_outline['phonetic'][i][:60],
+                         after=with_outline['aligned'][i][:60], **j) for (i, a), j in zip(done, judged)]
+        result['verse_alignment'] = dict(
+            verses=len(verses), segments_aligned=len(done), better=sum(j['effect'] == 'better' for j in judged),
+            same=sum(j['effect'] == 'same' for j in judged), worse=sum(j['effect'] == 'worse' for j in judged),
+            examples=examples[:30], worse_examples=[e for e in examples if e['effect'] == 'worse'][:30])
     if outline:
         result['outline'] = dict(terms=outline_terms, known=with_outline['outline']['known'],
                                  refs=with_outline['outline']['refs'], title=with_outline['outline']['title'])
@@ -749,15 +769,22 @@ def main():
                                 f"專名 {len(o['known'])}；經節 {o['refs']}")
     if args.verses_archive:
         rows += ['', '經文對齊（phonetic_verses 對照網站現在 phonetic；修好／改壞字數見上表）', '',
-                 '| 測試 | 給的經文節數 | 字幕段數 | 換成經文的段數 |', '| --- | --- | --- | --- |']
-        examples = []
+                 '| 測試 | 給的經文節數 | 字幕段數 | 換成經文的段數 | 變好 | 一樣 | 變差 |', '| --- | --- | --- | --- | --- | --- | --- |']
+        examples, worse, totals = [], [], [0, 0, 0, 0]
         for entry in report['pairs']:
             for cond in entry['conditions'][:1]:
                 v = cond.get('verse_alignment')
                 if v:
-                    rows.append(f"| {entry['id']} | {v['verses']} | {cond['segments']} | {v['segments_aligned']} |")
-                    examples += [f"- {entry['id']} {e['label']}（{e['identity']}）：{e['before']} → {e['after']}" for e in v['examples'][:3]]
-        rows += ['', '例子（每篇前 3 段）', ''] + examples
+                    rows.append(f"| {entry['id']} | {v['verses']} | {cond['segments']} | {v['segments_aligned']} | "
+                                f"{v['better']} | {v['same']} | {v['worse']} |")
+                    for i, k in enumerate(['segments_aligned', 'better', 'same', 'worse']):
+                        totals[i] += v[k]
+                    examples += [f"- {entry['id']} {e['label']}（{e['identity']}）：{e['before']} → {e['after']}" for e in v['examples'][:2]]
+                    worse += [f"- {entry['id']} {e['label']}（{e['identity']}，{e['edits_before']}→{e['edits_after']}）：{e['before']} → "
+                              f"{e['after']}｜參考：{e['reference']}" for e in v['worse_examples']]
+        accuracy = f"{(totals[1] + totals[2]) / totals[0]:.1%}" if totals[0] else '—'
+        rows += ['', f"合計：換了 {totals[0]} 段，變好 {totals[1]}、一樣 {totals[2]}、變差 {totals[3]}（一樣或更好 {accuracy}）", '',
+                 '變差的段落', ''] + (worse or ['（沒有）']) + ['', '例子（每篇前 2 段）', ''] + examples
     summary = '\n'.join(rows)
     (output/'summary.md').write_text(summary+'\n', encoding='utf-8')
     print('\n'+summary)

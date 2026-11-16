@@ -186,6 +186,8 @@ class ScoringTests(unittest.TestCase):
             condition = entry['conditions'][0]
             self.assertEqual(entry['verses_given'], 2)
             self.assertEqual(condition['verse_alignment']['segments_aligned'], 2)
+            v = condition['verse_alignment']
+            self.assertEqual((v['better'], v['same'], v['worse']), (1, 1, 0))  # the second line was already right
             website, aligned = condition['variants']['full/phonetic'], condition['variants']['full/phonetic_verses']
             self.assertGreater(website['cer'], 0)
             self.assertEqual(aligned['cer'], 0)
