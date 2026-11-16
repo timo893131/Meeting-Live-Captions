@@ -1,52 +1,32 @@
 # 工作卡：大型聚會最高準確度（綱要校正＋微調 Whisper）
 
 - 任務 ID／日期：2026-11-16-large-meeting-accuracy
-- 狀態：in_progress
-- 使用者目標：一個月以上後的大型聚會（內部使用）要有最準確的即時字幕。房主可先輸入當堂聚會的**綱要**，字幕即時依綱要校正；
-  另用全部 TWGBR 內容微調 Whisper，以最好的上下文即時辨識。不花錢。
-- 主分類：speech-finetuning；次分類：meeting-ui-ux（綱要輸入）、speech-evaluation（回測）、meeting-verification-release（上線）。
-- 影響角色：房主（輸入綱要、選辨識引擎）、觀看者（字幕品質）、資料處理者（Colab 訓練）。
+- 狀態：ready（規格完成，等新對話開工）
+- 規格：[../spec-large-meeting.md](../spec-large-meeting.md)（目標、使用者決策、里程碑、契約、驗收門檻、風險）
+- 主分類：speech-finetuning；次分類依里程碑：meeting-ui-ux、meeting-realtime、speech-data-preparation、speech-evaluation、meeting-verification-release。
+- 基準：main 1e04c38（正式網站）；開發分支 `claude/peaceful-keller-kbipya`（PR #16）；MEET 網站條件 CER 14.49%、專名 93/124。
+- 費用：零；Colab 免費 GPU、Modal Starter 免費額度（須設上限）、Cloudflare 免費方案。
 
-## 使用者決策（2026-11-16）
+## 決策與進度
 
-| 項目 | 決定 |
-| --- | --- |
-| 資料使用 | 只在內部使用；取消原先「TWGBR 不用於訓練」的限制，恢復本與生命讀經的文字＋音訊都可用來微調。此為使用者自行決定，**未取得臺灣福音書房授權**；模型權重不公開、不散布、不放 Git，只存在使用者自己的 Drive／私人模型空間。 |
-| 費用 | 不花錢：訓練用 Colab 免費 GPU；上線用免費額度。 |
-| 現場設備 | 沒有專用機器，要雲端部署。 |
-| 文字稿 | 聚會前只會有綱要／大綱（不是逐字講稿）。 |
-| MEET | 仍為封存測試：不訓練、不依它調整，只在最後驗收一次。 |
-| 時程 | 聚會在一個月以上之後；兩部分都完整做，含 MEET 驗收與現場彩排。 |
-
-## 免費部署選項查核（2026-11-16）
-
-| 選項 | 可行性 |
-| --- | --- |
-| Cloudflare Workers AI | 不能放自訂 Whisper 權重（只有官方模型；LoRA 只支援部分文字模型）。維持為備援。 |
-| **Modal Starter（建議）** | 每月 US$30 免費額度（官方價格頁），T4 約可跑 50 小時；按秒計費、不用時縮到 0。大型聚會數天、每天數小時可在額度內。需確認註冊是否要信用卡，並設定花費上限避免超額。 |
-| 房主瀏覽器 WebGPU（transformers.js） | 零費用，模型在收音那台電腦上跑；turbo 需要不錯的顯示晶片，速度要實測。可作第二方案。 |
-| Colab 即時服務 | 免費層會無預警中斷，且不適合當網路服務；不用於現場。 |
-| Hugging Face ZeroGPU | 免費帳號每天約 5 分鐘 GPU，不夠。 |
-| Oracle 永久免費 ARM | 只有 CPU，turbo 即時速度無依據，常無空機；不優先。 |
-
-## 計畫
-
-1. **綱要校正（先做，零費用）**：房主在房間貼上綱要 → 自動抽出經節（如「弗一23」）、專名、標題詞 → 加入本場同音校正詞表；
-   綱要引用的經節載入恢復本經文，講員讀經時把字幕對齊到經文原文；可測試以綱要專名作 Whisper 提示（之前用「最近字幕」當提示失敗，綱要提示需另外量測）。
-   以生命讀經開發集模擬（每篇取標題＋引用經節當「綱要」）量測。
-2. **訓練資料**：恢復本每章音訊＝經文朗讀（接近逐字），切成 ≤30 秒並以強制對齊篩選；生命讀經音訊是導讀不是逐字，用現有 Whisper 結果和文字比對、只留高一致段落。
-   開發集 16 篇與其來源篇章、MEET 三場排除在訓練外。
-3. **微調**：Colab 免費 T4，Whisper large-v3-turbo＋LoRA（不夠就退回 small／medium），checkpoint 存 Drive 可續跑；以開發集選模型。
-4. **服務**：合併權重轉 CTranslate2 → Modal 上的辨識端點；Worker 的 `/api/transcribe` 可選擇轉送到該端點，失敗自動回到 Workers AI。
-5. **驗收**：開發集比較 → MEET 一次 → 正式網址房間測試 → 聚會前彩排。
+| 里程碑 | 狀態 | 下一步 |
+| --- | --- | --- |
+| M0 收尾（同音放寬第 3 輪、PR #16） | 等使用者跑 Colab | 讀 near-check 結果 → 決定 MEET 驗收 |
+| M1 綱要輸入與本場詞表 | 未開始 | 等綱要範例 |
+| M2 經文對齊 | 未開始 | 等使用者同意 R2 存經文 |
+| M3 訓練資料 | 未開始 | — |
+| M4 微調 | 未開始 | — |
+| M5 Modal 部署 | 未開始 | 使用者申請 Modal |
+| M6 MEET 驗收與彩排 | 未開始 | — |
 
 ## 驗證證據
 
 | 檢查 | 方式 | 結果 | 版本／日期 |
 | --- | --- | --- | --- |
-| 同音放寬第 3 輪 | `notebooks/phonetic_near_check.ipynb` dev | unrun（等使用者跑） | 121384b |
+| 同音放寬第 3 輪 | `notebooks/phonetic_near_check.ipynb` dev | unrun | 121384b |
 
 ## 交接
 
-- 下一步：使用者提供一份綱要範例（格式）；我實作綱要校正與模擬量測；整理恢復本訓練資料的 Colab 筆記本。
+- 已完成：規格、使用者決策紀錄、免費部署選項查核（Modal Starter US$30／月額度；Workers AI 不能放自訂 Whisper；Colab／ZeroGPU／Oracle 不適合即時服務）。
+- 未解：spec 第 8 節四項待使用者確認。
 - token／wall time／費用：unavailable。

@@ -1,5 +1,7 @@
 # Google Colab 雲端 GPU 微調
 
+> 2026-11-16：此文件描述舊版 whisper-small smoke 管線。新的訓練資料（TWGBR，使用者內部使用決定）、large-v3-turbo LoRA 與部署規劃見 [spec-large-meeting.md](spec-large-meeting.md) M3–M5；M4 完成後改寫本文件。
+
 使用者已選擇 Google Colab，先嘗試免費 GPU。資料整理與QC可在本環境做，模型微調在Colab GPU執行；Cloudflare只保留網站／房間功能。現有網站仍用WebSpeech；此LoRA產物之後需接入自有Whisper辨識服務，才會影響網站字幕。Colab不保證免費GPU、型號或連線時長，沒有自動建立付費機器。
 
 [在 Colab 開啟 Notebook](https://colab.research.google.com/github/timo893131/Meeting-Live-Captions/blob/main/notebooks/cloud_whisper_lora.ipynb)

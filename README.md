@@ -8,7 +8,7 @@
 
 [AGENTS.md](AGENTS.md) 提供共通規則與任務路由；[完整工作流](docs/workflow.md) 分類 UI/UX、即時房間、資料蒐集／爬取、轉換、ASR／詞彙回測、模型微調及驗證發布。七個 Skills 位於 [.agents/skills](.agents/skills)，按任務載入；模板及資料 schema 可用來保存必要的交接與實驗證據。
 
-**目前狀態與下一步見 [交接摘要](docs/handoff.md)。** 正式網站：https://meeting-live-captions.livecap-worker.workers.dev 。在 3 場聚會錄音的封存測試上，網站使用的 Workers AI Whisper＋教會專名校正：錯字率約 14.5%、教會專名正確率約 75%（Chrome 辨識約 32%）；[評估紀錄](docs/meet-evaluation.md)。
+**目前狀態與下一步見 [交接摘要](docs/handoff.md)；開發規格見 [大型聚會開發規格](docs/spec-large-meeting.md)。** 正式網站：https://meeting-live-captions.livecap-worker.workers.dev 。在 3 場聚會錄音的封存測試上，網站使用的 Workers AI Whisper＋教會專名校正：錯字率約 14.5%、教會專名正確率約 75%（Chrome 辨識約 32%）；[評估紀錄](docs/meet-evaluation.md)。
 
 ## 功能
 
