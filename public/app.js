@@ -766,23 +766,35 @@ $('outlineFile').onchange = async () => {
   const file = $('outlineFile').files[0];
   $('outlineFile').value = '';
   if (!file) return;
-  let text;
+  let text, note = '';
   if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') {
     if (file.size > 150_000_000) { message('PDF 太大（超過 150 MB）。', 'info'); return; }
     message(`正在讀取「${file.name}」…（檔案只在這台電腦處理，不會上傳）`, 'info');
+    let stop = false, started = 0;
+    $('outlineFile').disabled = true;
+    $('stopOutlineOcr').onclick = () => { stop = true; $('stopOutlineOcr').disabled = true; };
     try {
       const {pdfToText} = await import('/outline-pdf.js');
-      const pdf = await pdfToText(file, {onProgress: (n, total) => { $('outlineSummary').textContent = `正在讀取 PDF：第 ${n}／${total} 頁…`; }});
-      if (pdf.emptyPages > pdf.pages / 2) {
-        showOutlineSummary();
-        message(`這份 PDF 有 ${pdf.emptyPages}／${pdf.pages} 頁是掃描的圖片，沒有文字可讀。請先用 Colab 筆記本 outline_ocr 轉成 Markdown（.md），再選那個 .md 檔。`, 'info');
-        return;
-      }
+      const pdf = await pdfToText(file, {ocr: true, shouldStop: () => stop, onProgress: (stage, n, total) => {
+        if (stage === 'text') { $('outlineSummary').textContent = `正在讀取 PDF：第 ${n}／${total} 頁…`; return; }
+        if (n === 1) {
+          started = Date.now(); $('stopOutlineOcr').hidden = false; $('stopOutlineOcr').disabled = false;
+          message('這是掃描的 PDF，正在這台電腦上辨識文字（第一次使用需下載約 6 MB）。可以先做別的事，請保持此分頁開啟。', 'info');
+        }
+        const left = n > 1 ? Math.round((Date.now() - started) / (n - 1) * (total - n + 1) / 60000) : null;
+        $('outlineSummary').textContent = `正在辨識掃描頁：第 ${n}／${total} 頁${left !== null ? `，約剩 ${Math.max(1, left)} 分鐘` : ''}…`;
+      }});
+      if (!pdf.ocrPages && pdf.emptyPages > pdf.pages / 2) throw new Error('no text');
       text = pdf.text;
+      if (pdf.ocrPages) {
+        note = `${pdf.stopped ? `已停止辨識，只載入已辨識的 ${pdf.ocrPages} 頁` : `已辨識 ${pdf.ocrPages} 頁掃描檔`}；瀏覽器辨識可能有錯字，請看一下篇題、專名和經節（要更準確可用 Colab 筆記本 outline_ocr）。`;
+      }
     } catch (error) {
       showOutlineSummary();
       message('無法讀取這份 PDF（檔案可能損壞或有密碼）。可改用 Colab 筆記本 outline_ocr 轉成 Markdown。', 'info');
       return;
+    } finally {
+      $('outlineFile').disabled = false; $('stopOutlineOcr').hidden = true;
     }
   } else {
     if (file.size > 2_000_000) { message('檔案太大（超過 2 MB），請選單篇或整份訓練的綱要 Markdown。', 'info'); return; }
@@ -793,7 +805,7 @@ $('outlineFile').onchange = async () => {
   try { localStorage.setItem('meetingOutlineFile', parts.length > 1 ? text : ''); localStorage.setItem('meetingOutlinePart', '0'); } catch {}
   showOutlineParts(parts);
   setOutline(parts[0].text);
-  message(parts.length > 1 ? `已載入「${file.name}」，共 ${parts.length} 篇；請在下方選當堂這一篇。` : `已載入「${file.name}」。`, 'success');
+  message((parts.length > 1 ? `已載入「${file.name}」，共 ${parts.length} 篇；請在下方選當堂這一篇。` : `已載入「${file.name}」。`) + note, 'success');
 };
 $('clearOutline').onclick = () => {
   setOutline('');

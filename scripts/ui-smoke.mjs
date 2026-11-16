@@ -237,7 +237,7 @@ test('an outline file with several messages lets the host pick one; a broken PDF
   await expect(page.locator('#outlinePartLabel')).toBeHidden();
 });
 
-test('a text PDF outline is read in the browser; a scanned PDF points to OCR', async t => {
+test('a text PDF outline is read in the browser', async t => {
   const {page} = await fixture(t);
   await page.locator('#settings > summary').click();
   await page.locator('#outlineFile').setInputFiles('test/fixtures/outline-text.pdf');
@@ -251,9 +251,22 @@ test('a text PDF outline is read in the browser; a scanned PDF points to OCR', a
   await expect(page.locator('#outlineSummary')).toContainText('經節 4 處');  // 2 in the 讀經 line, 2 in the points
   await page.locator('#outlinePart').selectOption({index: 1});
   await expect(page.locator('#outlineSummary')).toContainText('篇題：永遠的生命');
-  await page.locator('#outlineFile').setInputFiles('test/fixtures/outline-scan.pdf');
-  await expect(page.locator('#message')).toContainText('掃描的圖片', {timeout: 20000});
-  await expect(page.locator('#outlineSummary')).toContainText('篇題：永遠的生命');  // the current outline stays
+});
+
+test('a scanned PDF outline is read with in-browser OCR from files on this site', async t => {
+  const {context, page} = await fixture(t);
+  const external = [];
+  context.on('request', request => { if (!/^(blob|data):/.test(request.url()) && !request.url().startsWith(base)) external.push(request.url()); });
+  await page.locator('#settings > summary').click();
+  await page.locator('#outlineFile').setInputFiles('test/fixtures/outline-scan.pdf');  // two image-only pages
+  await expect(page.locator('#message')).toContainText('已辨識 2 頁掃描檔', {timeout: 120000});
+  await expect(page.locator('#message')).toContainText('共 2 篇');
+  await expect(page.locator('#outlinePart option')).toHaveCount(2);
+  await expect(page.locator('#outlineSummary')).toContainText('篇題：門徒與基督徒');
+  await expect(page.locator('#outline')).toHaveValue(/以撒是應許之子—創二一3/);
+  await expect(page.locator('#stopOutlineOcr')).toBeHidden();
+  await expect(page.locator('#outlineFile')).toBeEnabled();
+  assert.deepEqual(external, []);  // pdf.js, tesseract.js, its core and the Chinese model all come from this site
 });
 
 function silentWav(seconds) {

@@ -73,6 +73,7 @@
       <label>本場綱要（選填）<textarea id="outline" rows="6" spellcheck="false" maxlength="60000" placeholder="貼上當堂信息的綱要：篇題、讀經、要點（從 PDF 複製的文字或轉好的 Markdown 都可以）"></textarea></label>
       <p id="outlineSummary" class="hint" role="status" aria-live="polite"></p>
       <label>或從檔案載入綱要（PDF、.md、.txt）<input id="outlineFile" type="file" accept=".pdf,application/pdf,.md,.markdown,.txt,text/plain,text/markdown"></label>
+      <button id="stopOutlineOcr" class="compact" hidden>停止辨識（保留已辨識的頁）</button>
       <label id="outlinePartLabel" hidden>檔案裏有多篇，選當堂這一篇<select id="outlinePart"></select></label>
       <div class="actions"><button id="clearOutline">清除綱要</button></div>
       <p class="hint">綱要只用來校正本場字幕：綱要裡的書卷、教會專名與聖經人名，讀音相近時也會改正；綱要中重複出現的專有名詞會加入同音校正。綱要只存在這台瀏覽器，不會傳到伺服器，也不會給觀看者；換下一篇時請貼上新的綱要。</p>
