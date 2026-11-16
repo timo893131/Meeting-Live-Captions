@@ -70,6 +70,10 @@
       </details>
       <label>詞彙校正表<textarea id="glossary" rows="10" spellcheck="false"></textarea></label>
       <div class="actions"><button id="saveGlossary">儲存詞彙表</button><button id="resetGlossary">清空詞彙表</button></div>
+      <label>本場綱要（選填）<textarea id="outline" rows="6" spellcheck="false" maxlength="60000" placeholder="貼上當堂信息的綱要：篇題、讀經、要點（從 PDF 複製的文字或轉好的 Markdown 都可以）"></textarea></label>
+      <p id="outlineSummary" class="hint" role="status" aria-live="polite"></p>
+      <div class="actions"><button id="clearOutline">清除綱要</button></div>
+      <p class="hint">綱要只用來校正本場字幕：綱要裡的書卷、教會專名與聖經人名，讀音相近時也會改正；綱要中重複出現的專有名詞會加入同音校正。綱要只存在這台瀏覽器，不會傳到伺服器，也不會給觀看者；換下一篇時請貼上新的綱要。</p>
       <div id="fileTest" class="fileTest">
         <label>用音檔測試辨識（個人模式）<input id="testAudio" type="file" accept="audio/*"></label>
         <p class="hint">選擇錄音檔後依上方「辨識方式」處理，不需要喇叭或麥克風，聲音也不會播出。<b>Whisper</b>：在停頓處切段後送 Cloudflare 辨識，30 分鐘的錄音約幾分鐘完成，約用掉當天免費額度的 15%。<b>Chrome</b>：以正常速度交給 Chrome 辨識，30 分鐘約需 30 分鐘，需要桌面版 Chrome 133 以上。完成後按「下載字幕」；處理期間請保持此分頁開啟。</p>

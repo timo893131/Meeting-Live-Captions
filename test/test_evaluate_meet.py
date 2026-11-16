@@ -116,6 +116,48 @@ class ScoringTests(unittest.TestCase):
             self.assertTrue(report['sealed_test'])
 
 
+    def test_simulated_outline_keeps_title_subheadings_and_refs_but_no_body(self):
+        text = ('第九篇　以撒與彼列\n我們繼續看以撒的事。（創二一3。）這段是內文，不放進綱要。\n'
+                '（一）　以撒是應許之子\n內文說到彼列。（林後六15，約壹三8。）\n（ａ）　基督與彼列\n')
+        outline = ev.simulated_outline(text)
+        self.assertEqual(outline.splitlines(), ['第九篇　以撒與彼列', '讀經：創二一3，林後六15，約壹三8',
+                                                '（一）　以撒是應許之子', '（ａ）　基督與彼列'])
+        self.assertEqual(ev.simulated_outline(''), '')
+
+    def test_outline_variant_is_compared_with_the_website_and_counts_new_terms(self):
+        with tempfile.TemporaryDirectory() as folder:
+            meet = Path(folder)/'dev'; meet.mkdir()
+            (meet/'01.mp3').write_bytes(b'ID3synthetic')
+            (meet/'01.txt').write_text('第九篇　以撒與彼列\n亞伯拉罕生以撒。基督與彼列有甚麼相和。\n（一）　以撒是應許之子\n'
+                                       '（二）　基督與彼列\n', encoding='utf-8')
+            (meet/'01.chrome.txt').write_text('上午10:00:00 第九篇以撒與彼烈亞伯拉罕生以沙基督與彼烈有甚麼相和\n', encoding='utf-8')
+            sys.argv = ['evaluate_meet.py', '--meet', str(meet), '--output', str(Path(folder)/'run'), '--development',
+                        '--loose-reference', '--outline']
+            ev.main()
+            run = Path(folder)/'run'
+            report = json.loads((run/'report.json').read_text(encoding='utf-8'))
+            condition = report['pairs'][0]['conditions'][0]
+            self.assertEqual(condition['outline']['terms'], ['彼列'])
+            self.assertIn('以撒', condition['outline']['known'])
+            website, with_outline = condition['variants']['full/phonetic'], condition['variants']['full/phonetic_outline']
+            self.assertEqual((website['outline_terms_bag_found'], website['outline_term_occurrences']), (0, 3))
+            self.assertEqual(with_outline['outline_terms_bag_found'], 2)  # both 彼烈 → 彼列
+            self.assertGreater(with_outline['chars_fixed_vs_previous'], 0)  # vs the website, not vs phonetic_near
+            self.assertEqual(with_outline['chars_broken_vs_previous'], 0)
+            self.assertEqual(report['pairs'][0]['outline_false_edits'], 0)  # the correct text itself is left alone
+            self.assertTrue((run/'01.outline.md').exists())
+            self.assertIn('本場新詞', (run/'summary.md').read_text(encoding='utf-8'))
+
+    def test_sealed_test_needs_a_real_outline(self):
+        with tempfile.TemporaryDirectory() as folder:
+            meet = Path(folder)/'MEET'; meet.mkdir()
+            (meet/'01.mp3').write_bytes(b'ID3synthetic')
+            (meet/'01.txt').write_text('第一篇 標題\n內文', encoding='utf-8')
+            (meet/'01.chrome.txt').write_text('上午10:00:00 標題內文\n', encoding='utf-8')
+            sys.argv = ['evaluate_meet.py', '--meet', str(meet), '--output', str(Path(folder)/'run'), '--outline']
+            with self.assertRaises(SystemExit):
+                ev.main()
+
 class WorkersAITests(unittest.TestCase):
     def test_condition_names(self):
         self.assertEqual(ev.condition_name('cfvad10'), 'workers_ai_live_vad_10s')

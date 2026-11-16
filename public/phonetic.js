@@ -92,9 +92,10 @@ function insideCommonWord(chars, positions, common) {
 
 /**
  * Replace same-sound misrecognitions of known terms. Returns {text, changes:[{from,to,index}]}.
- * Without the pinyin table loaded the text is returned unchanged. {near: true} also accepts near sounds (see top).
+ * Without the pinyin table loaded the text is returned unchanged. {near: true} also accepts near sounds (see top);
+ * {nearTerms: Set} instead limits near sounds to those terms (this meeting's outline, see outline.js).
  */
-export function phoneticCorrect(text, terms = DEFAULT_TERMS, {near = false} = {}) {
+export function phoneticCorrect(text, terms = DEFAULT_TERMS, {near = false, nearTerms = null} = {}) {
   if (!readings || !text) return {text, changes: []};
   const chars = Array.from(text);
   const list = [...new Set(terms)].map(term => Array.from(term)).filter(term => term.length >= MIN_LENGTH)
@@ -134,7 +135,8 @@ export function phoneticCorrect(text, terms = DEFAULT_TERMS, {near = false} = {}
     }
     const accepted = termReadings(term);
     if (!accepted) continue;
-    const loose = looseReadings(accepted), nearTerm = near && NEAR_TERMS.has(term.join(''));
+    const key = term.join('');
+    const loose = looseReadings(accepted), nearTerm = nearTerms ? nearTerms.has(key) : near && NEAR_TERMS.has(key);
     for (const i of starts(term, loose)) {
       if (i + term.length > chars.length) break;
       let differs = false, ok = true;

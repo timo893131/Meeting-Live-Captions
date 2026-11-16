@@ -1,5 +1,6 @@
 import {defaultGlossary, startingGlossary, parseGlossary, correctText} from '/glossary.js';
-import {DEFAULT_TERMS, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '/phonetic.js';
+import {DEFAULT_TERMS, NEAR_SKIP, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '/phonetic.js';
+import {parseOutline, correctionOptions} from '/outline.js';
 import {BIBLE_BOOKS, CORE_TERMS, LIFE_STUDY_TERMS, BIBLE_NAMES} from '/church-terms.js';
 import {ALWAYS_CORRECTED} from '/always-corrected.js';
 import {RATE, createSegmenter, startMicrophoneChunks, encodeWav, createOrderedQueue} from '/speech-chunker.js';
@@ -223,15 +224,29 @@ const speechErrors = {
   'language-not-supported': '語音服務不支援目前語言，請切換語言後再試。'
 };
 // Same-sound church-term correction: the pinyin data is loaded once, only when someone starts captioning.
-let pinyinLoading = null;
-function ensurePinyin() {
-  if (!$('phonetic').checked || pinyinReady()) return Promise.resolve();
-  pinyinLoading ||= import('/pinyin-zh.js').then(loadPinyin).catch(() => { pinyinLoading = null; });
+let pinyinLoading = null, commonWords = null;
+function loadPinyinData() {
+  pinyinLoading ||= import('/pinyin-zh.js').then(data => { loadPinyin(data); commonWords = new Set(data.COMMON.split('|')); })
+    .catch(() => { pinyinLoading = null; });
   return pinyinLoading;
 }
-function correctCaption(text, glossary, terms) {
+function ensurePinyin() {
+  if (!$('phonetic').checked || pinyinReady()) return Promise.resolve();
+  return loadPinyinData();
+}
+// This meeting's outline (host's browser only): parsed once per text, see outline.js.
+function currentOutline() {
+  const text = $('outline').value;
+  return text.trim() && commonWords ? parseOutline(text, {common: commonWords, known: DEFAULT_TERMS}) : null;
+}
+function captionCorrection() {
+  const value = $('glossary').value, outline = correctionOptions(currentOutline(), {nearSkip: NEAR_SKIP});
+  return {glossary: parseGlossary(value), terms: [...DEFAULT_TERMS, ...outline.terms, ...parseTerms(value)],
+    options: outline.nearTerms ? {nearTerms: outline.nearTerms} : {}};
+}
+function correctCaption(text, {glossary, terms, options}) {
   const exact = correctText(text, glossary);
-  return $('phonetic').checked ? phoneticCorrect(exact, terms).text : exact;
+  return $('phonetic').checked ? phoneticCorrect(exact, terms, options).text : exact;
 }
 
 function beginRecognition(run) {
@@ -256,10 +271,9 @@ function beginRecognition(run) {
   rec.onresult = event => {
     if (!current()) return;
     let interim = '';
-    const glossary = parseGlossary($('glossary').value);
-    const terms = [...DEFAULT_TERMS, ...parseTerms($('glossary').value)];
+    const correction = captionCorrection();
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i], text = correctCaption(result[0].transcript, glossary, terms);
+      const result = event.results[i], text = correctCaption(result[0].transcript, correction);
       if (result.isFinal) {
         if (completedResults.has(i)) continue;
         completedResults.add(i);
@@ -347,8 +361,7 @@ function deliverWhisper(state, item) {
     // Whisper may repeat itself on noise or music: the same longer line twice in a row is shown once.
     if (item.text && !(item.text.length >= 6 && item.text === state.lastText)) {
       state.lastText = item.text;
-      const glossary = parseGlossary($('glossary').value), terms = [...DEFAULT_TERMS, ...parseTerms($('glossary').value)];
-      sendCaption(correctCaption(item.text, glossary, terms), true);
+      sendCaption(correctCaption(item.text, captionCorrection()), true);
     }
     state.preview = '';  // the preview of this stretch is replaced by the recognized caption
     return;
@@ -705,6 +718,40 @@ try {
 // A box saved unchanged with the earlier default pairs counts as never edited: it starts empty like everyone's.
 const oldDefault = defaultGlossary.map(pair => pair.join('=')).join('\n');
 $('glossary').value = savedGlossary == null || savedGlossary.trim() === oldDefault ? startingGlossary.map(pair => pair.join('=')).join('\n') : savedGlossary;
+
+// 本場綱要: saved in this browser only (never sent anywhere); the summary shows what the captions will use.
+function showOutlineSummary() {
+  const text = $('outline').value;
+  if (!text.trim()) { $('outlineSummary').textContent = '未輸入綱要。'; return; }
+  if (!commonWords) {
+    $('outlineSummary').textContent = '正在讀取綱要…';
+    loadPinyinData().then(() => { if (commonWords) showOutlineSummary(); else $('outlineSummary').textContent = '無法載入讀音資料，綱要暫時不會用於校正。'; });
+    return;
+  }
+  const outline = currentOutline();
+  const list = (items, limit = 30) => items.slice(0, limit).join('、') + (items.length > limit ? `…等 ${items.length} 個` : '');
+  $('outlineSummary').textContent = [
+    outline.title ? `篇題：${outline.title}` : '沒有找到篇題（第一行或「第X篇」後面的文字）',
+    `經節 ${outline.refs.length} 處`,
+    outline.known.length ? `綱要裏的專名 ${outline.known.length} 個（讀音相近也會改正）：${list(outline.known)}` : '綱要裏沒有內建專名',
+    outline.terms.length ? `本場新詞 ${outline.terms.length} 個：${list(outline.terms)}` : '沒有新詞'
+  ].join('；') + '。';
+}
+let outlineTimer;
+$('outline').oninput = () => {
+  clearTimeout(outlineTimer);
+  outlineTimer = setTimeout(() => {
+    try { localStorage.setItem('meetingOutline', $('outline').value); } catch {}
+    showOutlineSummary();
+  }, 400);
+};
+$('clearOutline').onclick = () => {
+  $('outline').value = '';
+  try { localStorage.removeItem('meetingOutline'); } catch {}
+  showOutlineSummary(); message('已清除本場綱要。', 'info');
+};
+try { $('outline').value = localStorage.getItem('meetingOutline') || ''; } catch {}
+if ($('outline').value.trim()) showOutlineSummary(); else $('outlineSummary').textContent = '未輸入綱要。';
 
 async function checkServerSpeech() {
   try { serverSpeech = (await (await request('/api/health')).json()).transcribe === true; } catch { serverSpeech = false; }
