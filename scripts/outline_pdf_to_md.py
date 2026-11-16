@@ -34,19 +34,78 @@ _verse = r'\d+(?:[上下])?(?:[～~\-－–]\d+(?:[上下])?)?'
 REF_RE = re.compile(rf'(?:(?:{_books})[{CN_NUM}]+{_verse}|(?:{_single}){_verse})'
                     rf'(?:[，,、](?:[{CN_NUM}]+)?{_verse})*')
 
+# 中文綱要層級：壹 → 一 → （一） → 1 → a → （1） → （a）
 LEVEL_MARKERS = [
-    (1, re.compile(r'^([壹貳參叁肆伍陸柒捌玖拾]+)[\s、.．]')),
-    (2, re.compile(r'^([一二三四五六七八九十]+)[\s、.．]')),
-    (3, re.compile(r'^(\d{1,2})[\s、.．]')),
-    (4, re.compile(r'^([a-z])[\s、.．)]')),
-    (5, re.compile(r'^([（(]\d{1,2}[)）])')),
-    (6, re.compile(r'^([（(][a-z][)）])')),
+    (1, re.compile(r'^([壹貳參叁肆伍陸柒捌玖拾]+)(?:[\s、.．]|$)')),
+    (2, re.compile(r'^([一二三四五六七八九十]+)(?:[\s、.．]|$)')),
+    (3, re.compile(r'^([（(][一二三四五六七八九十]+[)）])')),
+    (4, re.compile(r'^(\d{1,2})(?:[\s、.．]|$)')),
+    (5, re.compile(r'^([a-z])(?:[\s、.．)]|$)')),
+    (6, re.compile(r'^([（(]\d{1,2}[)）])')),
+    (7, re.compile(r'^([（(][a-z][)）])')),
 ]
-MESSAGE_RE = re.compile(r'^第\s*([一二三四五六七八九十百\d]+)\s*篇\s*(.*)$')
+# OCR 把書卷後的國字章數「一」讀成「-」、「十」讀成「+」：約壹-1～2、路-53、約+28（只改半形 -／+，不碰破折號「—」）
+OCR_CHAPTER_RE = re.compile(rf'({_books})([-+])(?=[\d{CN_NUM}])')
+MARKER_ONLY_RE = re.compile(r'^(?:[壹貳參叁肆伍陸柒捌玖拾]+|[一二三四五六七八九十]+|[（(][一二三四五六七八九十\d]+[)）]|\d{1,2}|[a-z])$')
+# 「第一篇」「信徒(一) 第一篇」（前面是系列名）；「第一篇(續)」是續頁的頁首，不是新的一篇。
+MESSAGE_RE = re.compile(r'^([^，。；：,;:]{0,20}?)\s*第\s*([一二三四五六七八九十百\d]+)\s*篇\s*(.*)$')
+CONTINUED_RE = re.compile(r'^[（(]\s*續\s*[)）]')
+# 綱要附經文版：「太5:1」「林前1:2 寫信給…」「約17:4 來5:8 腓2:8」（阿拉伯數字 章:節）
+QUOTE_REF = rf'(?:{_books})\d+:\d+(?:[～~\-－–]\d+)?'
+QUOTE_RE = re.compile(rf'^({QUOTE_REF})(?:\s+|$)(.*)$')
+QUOTE_REFS_ONLY_RE = re.compile(rf'^{QUOTE_REF}(?:\s+{QUOTE_REF})*$')
 SCRIPTURE_RE = re.compile(r'^(讀經|读经)\s*[:：]\s*(.*)$')
 TOC_LEADER_RE = re.compile(r'(?:[.．…·‧・]{3,}|\s{2,})\s*\d+\s*$')
 PAGE_NUMBER_RE = re.compile(r'^[\s\-—–·]*(?:第\s*)?(?:\d+|[ivxlc]+|[IVXLC]+)\s*(?:頁)?[\s\-—–·]*$')
 SENTENCE_END = '。！？；」』）)'
+
+
+DIGITS = {c: i for i, c in enumerate('○一二三四五六七八九')} | {'〇': 0}
+FORMAL_DIGITS = {c: i for i, c in enumerate('壹貳參肆伍陸柒捌玖拾', 1)} | {'叁': 3}
+UNSPACED_MARKER_RE = re.compile(r'^([壹貳參叁肆伍陸柒捌玖拾]|[一二三四五六七八九十]{1,3})(?=[\u4e00-\u9fff『「])')
+ITEM_END = '。：:；;』」）)?？!！'
+
+
+def chinese_number(text):
+    """一二三 style numbers: 二三 = 23, 十四 = 14, 二十 = 20, 一百一十九 = 119, 一一九 = 119."""
+    if not any(c in text for c in '十百'):
+        value = 0
+        for c in text:
+            value = value * 10 + DIGITS[c]
+        return value
+    value, current = 0, 0
+    for c in text:
+        if c == '百':
+            value += (current or 1) * 100
+            current = 0
+        elif c == '十':
+            value += (current or 1) * 10
+            current = 0
+        else:
+            current = current * 10 + DIGITS[c]
+    return value + current
+
+
+CJK_GAP_RE = re.compile(r'(?<=[\u4e00-\u9fff])[ \t]+(?=[\u4e00-\u9fff])')
+
+
+def squeeze(text):
+    """Drop spaces between two Chinese characters (OCR/PDF line-layout artifacts: 「惟 一的生命」)."""
+    return CJK_GAP_RE.sub('', text)
+
+
+def item_text(text, level):
+    """Keep the space after the outline marker, squeeze the rest."""
+    if level and ' ' in text:
+        marker, rest = text.split(' ', 1)
+        return f'{marker} {squeeze(rest)}'
+    return squeeze(text)
+
+
+def marker_value(level, marker):
+    if level == 1:
+        return FORMAL_DIGITS.get(marker[0], 0) if len(marker) == 1 else 0
+    return chinese_number(marker)
 
 
 def normalize_char(ch):
@@ -61,6 +120,8 @@ def normalize_char(ch):
         return ' ', True
     if ch in '∼〜˜':  # ∼ 〜 ˜：有些字型把經節範圍的「～」抽成這些字
         return '～', True
+    if ch == '啓':  # 異體字：書卷簡稱「啟」
+        return '啟', True
     return ch, False
 
 
@@ -126,9 +187,11 @@ def build_messages(pages, stats):
     """Group lines into messages → items. Wrapped lines are joined to the item they continue."""
     sizes = Counter(line['size'] for page in pages for line in page['lines'])
     body_size = sizes.most_common(1)[0][0] if sizes else 0
-    front = {'number': None, 'title': '', 'scripture': [], 'items': []}
+    front = {'number': None, 'title': '', 'series': '', 'scripture': [], 'items': [], 'quotes': []}
     messages = [front]
     current = None  # the item (dict) that a wrapped line continues
+    last_number = {}  # 每層最後一個標號的數值，判斷沒有空白的標號
+    pending_marker = ''  # OCR 常把頁邊的標號（「3」「壹」）切成單獨一行：接到下一行前面
 
     def message():
         return messages[-1]
@@ -136,39 +199,78 @@ def build_messages(pages, stats):
     for page_number, page in enumerate(pages, 1):
         for line in page['lines']:
             text = normalize_text(line['text'], stats)
+            if text in ('-', '－'):  # OCR 把單獨一行的標號「一」讀成「-」
+                text = '一'
+            text, fixed = OCR_CHAPTER_RE.subn(lambda m: m.group(1) + ('一' if m.group(2) == '-' else '十'), text)
+            stats['ocr_chapter_fixes'] += fixed
             if not text:
                 continue
             match = MESSAGE_RE.match(text)
-            if match and not TOC_LEADER_RE.search(text):
-                messages.append({'number': match.group(1), 'title': match.group(2).strip(), 'scripture': [],
-                                 'items': [], 'page': page_number})
-                current = None
-                continue
-            if match:
+            if match and TOC_LEADER_RE.search(text):
                 stats['toc_lines_skipped'] += 1
                 continue
+            if match:
+                number, rest = match.group(2), match.group(3).strip()
+                if CONTINUED_RE.match(rest) or (number == message()['number'] and not rest):
+                    stats['continuation_headers'] += 1  # 續頁頁首：同一篇繼續，要點可能跨頁接續
+                    continue
+                last_number = {}
+                messages.append({'number': number, 'title': rest, 'series': match.group(1).strip(), 'scripture': [],
+                                 'items': [], 'quotes': [], 'page': page_number})
+                current = None
+                continue
+            if QUOTE_REFS_ONLY_RE.match(text):
+                message()['quotes'] += [{'ref': ref, 'text': ''} for ref in text.split()]
+                current = None
+                continue
+            if QUOTE_RE.match(text):
+                # 一行可能有兩節：「弗6:17 還要…；弗6:18 時時…」
+                pieces = re.split(rf'(?:^|\s)({QUOTE_REF})(?=\s|$)', ' ' + text)
+                for ref, quoted in zip(pieces[1::2], pieces[2::2]):
+                    message()['quotes'].append({'ref': ref, 'text': squeeze(quoted.strip())})
+                current = None
+                continue
+            if MARKER_ONLY_RE.match(text):
+                pending_marker = text
+                continue
+            if pending_marker:
+                text, pending_marker = f'{pending_marker} {text}', ''
             scripture = SCRIPTURE_RE.match(text)
             if scripture:
                 message()['scripture'].append(scripture.group(2))
                 current = {'kind': 'scripture'}
                 continue
             level = line_level(text)
+            unspaced = None if level else UNSPACED_MARKER_RE.match(text)
+            if unspaced:
+                # OCR 常漏掉標號後的空白（「三在全宇宙中」）：只有是同層的下一個號碼、且上一行已經結束一句時才算標號
+                marker = unspaced.group(1)
+                guess = 1 if marker[0] in FORMAL_DIGITS else 2
+                previous = message()['items'][-1]['text'] if message()['items'] else ''
+                if (marker_value(guess, marker) == last_number.get(guess, 0) + 1 and previous
+                        and previous.rstrip()[-1:] in ITEM_END):
+                    text, level = f'{marker} {text[len(marker):]}', guess
+                    stats['unspaced_markers'] += 1
             if body_size:
                 heading = line['size'] >= body_size * 1.15
             else:  # OCR 文字沒有字級：「第X篇」後第一行沒有標號的字就是篇題
                 heading = message()['number'] is not None and not message()['title']
             if level:
-                current = {'kind': 'item', 'level': level, 'text': text}
+                current = {'kind': 'item', 'level': level, 'text': item_text(text, level)}
                 message()['items'].append(current)
+                if level in (1, 2):
+                    last_number[level] = marker_value(level, text.split(' ', 1)[0].rstrip('、.．'))
+                for deeper in range(level + 1, 8):
+                    last_number.pop(deeper, None)
             elif heading and not message()['items'] and not message()['scripture']:
                 message()['title'] = (message()['title'] + text) if message()['title'] else text
                 current = None
             elif current and current['kind'] == 'scripture' and REF_RE.match(text):
                 message()['scripture'][-1] += text
             elif current and current['kind'] == 'item':
-                current['text'] += text  # 中文換行接續，不加空白
+                current['text'] += squeeze(text)  # 中文換行接續，不加空白
             else:
-                current = {'kind': 'item', 'level': 0, 'text': text}
+                current = {'kind': 'item', 'level': 0, 'text': squeeze(text)}
                 message()['items'].append(current)
     if not front['items'] and not front['title']:
         messages.pop(0)
@@ -187,6 +289,12 @@ def message_markdown(message):
     for item in message['items']:
         indent = '  ' * max(item['level'] - 1, 0)
         lines.append(f"{indent}- {item['text']}" if item['level'] else item['text'])
+    if message.get('quotes'):
+        lines += ['', '### 引用經文（綱要附的經文）', '']
+        lines += [f"- {q['ref']} {q['text']}".rstrip() for q in message['quotes']]
+    if message.get('verse_text'):
+        lines += ['', '### 經文內容（OCR 讀成單獨的行，已依恢復本認出）', '']
+        lines += [f'- {text}' for text in message['verse_text']]
     return '\n'.join(lines).rstrip() + '\n'
 
 
@@ -196,18 +304,21 @@ def message_summary(message):
         'number': message['number'], 'title': message['title'], 'page': message.get('page'),
         'scripture_lines': len(message['scripture']), 'points': sum(1 for i in message['items'] if i['level']),
         'unmarked_lines': sum(1 for i in message['items'] if not i['level']),
-        'verse_references': len(REF_RE.findall(text)), 'chars': len(text),
+        'verse_references': len(REF_RE.findall(text)), 'quoted_verses': len(message.get('quotes', [])),
+        'chars': len(text),
     }
 
 
 def convert(pdf_path, output_dir, pages=None, checks=None):
     """pages: precomputed lines (e.g. from OCR) instead of the PDF text layer; checks(messages) → dict merged into the report."""
     pdf_path, output_dir = Path(pdf_path), Path(output_dir)
-    stats = Counter(private_use_chars=0, normalized_chars=0, running_lines_removed=0, toc_lines_skipped=0)
+    stats = Counter(private_use_chars=0, normalized_chars=0, running_lines_removed=0, toc_lines_skipped=0,
+                    continuation_headers=0, ocr_chapter_fixes=0, unspaced_markers=0)
     pages = extract_pages(pdf_path) if pages is None else pages
     empty = [n for n, page in enumerate(pages, 1) if sum(len(l['text'].strip()) for l in page['lines']) < 20]
     remove_running_lines(pages, stats)
     messages, body_size = build_messages(pages, stats)
+    extra = checks(messages) if checks else {}
     name = pdf_path.stem
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir/name).mkdir(exist_ok=True)
@@ -231,10 +342,8 @@ def convert(pdf_path, output_dir, pages=None, checks=None):
         'source': pdf_path.name, 'pages': len(pages), 'pages_without_text': empty, 'body_font_size': body_size,
         **dict(stats), 'messages': [message_summary(m) for m in messages], 'warnings': warnings,
     }
-    if checks:
-        extra = checks(messages)
-        report['warnings'] += extra.pop('warnings', [])
-        report.update(extra)
+    report['warnings'] += extra.pop('warnings', [])
+    report.update(extra)
     (output_dir/f'{name}.report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n',
                                                  encoding='utf-8')
     return report

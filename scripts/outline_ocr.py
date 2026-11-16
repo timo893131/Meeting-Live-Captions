@@ -8,8 +8,11 @@ as text, and the temporary Doc is deleted. Page text is cached, so a rerun only 
 
 Checks without a hand-typed reference:
 - verse references whose book chapter does not exist (OCR misread digits/numerals);
-- words one character away from a known church term or Bible name (likely misread characters);
+- outlines printed with their verses (綱要附經文): the OCR text of each quoted verse against the Recovery
+  Version text (from the TWGBR archive on Drive) gives a real character error rate;
 - pages whose OCR text is nearly empty.
+(A "one character away from a church term" check was tried on the sample and dropped: 254 flags, nearly all
+correct text such as 亞伯拉罕／亞伯蘭.)
 
 Colab: notebooks/outline_ocr.ipynb. Outlines are copyrighted: output stays in Drive, never in Git.
 """
@@ -28,30 +31,13 @@ CHAPTERS = dict(zip(outline.BOOK_ABBREVIATIONS, [
     50, 40, 27, 36, 34, 24, 21, 4, 31, 24, 22, 25, 29, 36, 10, 13, 10, 42, 150, 31, 12, 8, 66, 52, 5, 48, 12, 14,
     3, 9, 1, 4, 7, 3, 3, 3, 2, 14, 4,  # 舊約 39 卷
     28, 16, 24, 21, 28, 16, 16, 13, 6, 6, 4, 4, 5, 3, 6, 4, 3, 1, 13, 5, 5, 3, 5, 1, 1, 1, 22]))  # 新約 27 卷
-DIGITS = {c: i for i, c in enumerate('○一二三四五六七八九')} | {'〇': 0}
 _books = '|'.join(sorted(outline.BOOK_ABBREVIATIONS, key=len, reverse=True))
 PIECE_RE = re.compile(rf'(?:({_books}))?([{outline.CN_NUM}]+)?(\d+)')
 MAX_IMAGE_BYTES = 1_900_000
+QUOTE_KEY_RE = re.compile(rf'^({_books})(\d+):(\d+)(?:[～~\-－–](\d+))?$')
 
 
-def chinese_number(text):
-    """一二三 style chapter numbers: 二三 = 23, 十四 = 14, 二十 = 20, 一百一十九 = 119, 一一九 = 119."""
-    if not any(c in text for c in '十百'):
-        value = 0
-        for c in text:
-            value = value * 10 + DIGITS[c]
-        return value
-    value, current = 0, 0
-    for c in text:
-        if c == '百':
-            value += (current or 1) * 100
-            current = 0
-        elif c == '十':
-            value += (current or 1) * 10
-            current = 0
-        else:
-            current = current * 10 + DIGITS[c]
-    return value + current
+chinese_number = outline.chinese_number
 
 
 def parse_references(text):
@@ -71,58 +57,124 @@ def parse_references(text):
                 yield piece, book, chapter, int(parsed.group(3))
 
 
-def known_terms():
+def bible_books():
     source = (ROOT/'public/church-terms.js').read_text(encoding='utf-8')
-    names = json.loads(re.search(r'BIBLE_NAMES = (\[.*\]);', (ROOT/'public/bible-names.js').read_text(
-        encoding='utf-8')).group(1))
-    return sorted(set(re.findall(r"'([^']+)'", source)) - {'./bible-names.js'} | set(names))
+    return re.findall(r"'([^']+)'", re.search(r'BIBLE_BOOKS = \[(.*?)\]', source, re.S).group(1))
 
 
-def near_term_suspects(text, terms):
-    """Substrings that differ from a known term (≥3 chars) in exactly one character and are not terms themselves."""
-    term_set = set(terms)
-    by_length = {}
-    for term in terms:
-        if len(term) >= 3:
-            by_length.setdefault(len(term), []).append(term)
-    found = {}
-    for length, group in by_length.items():
-        for start in range(len(text) - length + 1):
-            piece = text[start:start + length]
-            if piece in term_set or not all('一' <= c <= '鿿' for c in piece):
+def load_recovery_version(text_dir):
+    """{(abbreviation, chapter, verse): text} from <archive>/recovery-version/text/NN-書名.txt (TWGBR download)."""
+    verses = {}
+    for number, (abbreviation, book) in enumerate(zip(outline.BOOK_ABBREVIATIONS, bible_books()), 1):
+        path = Path(text_dir)/f'{number:02d}-{book}.txt'
+        if not path.exists():
+            continue
+        chapter = 1
+        for line in path.read_text(encoding='utf-8').splitlines():
+            line = line.strip()
+            heading = re.match(r'^\S+ 第 (\d+) 章$', line)
+            if heading:
+                chapter = int(heading.group(1))
                 continue
-            for term in group:
-                if sum(a != b for a, b in zip(piece, term)) == 1:
-                    found.setdefault((piece, term), text[max(0, start - 6):start + length + 6])
-                    break
-    return [{'ocr': piece, 'term': term, 'context': context} for (piece, term), context in found.items()]
+            verse = re.match(r'^(\d+)\s+(.+)$', line)
+            if verse:
+                verses.setdefault((abbreviation, chapter, int(verse.group(1))), verse.group(2))
+    return verses
 
 
-def check_messages(messages, terms=None):
-    terms = known_terms() if terms is None else terms
-    bad_refs, suspects = [], []
+def hanzi(text):
+    return ''.join(c for c in text if '\u4e00' <= c <= '\u9fff' or '\u3400' <= c <= '\u4dbf')
+
+
+def fitting_distance(piece, reference):
+    """Edits to turn piece into some substring of reference (piece may be a cut-off part of a verse)."""
+    previous = [0] * (len(reference) + 1)
+    for i, a in enumerate(piece, 1):
+        current = [i] + [0] * len(reference)
+        for j, b in enumerate(reference, 1):
+            current[j] = min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a != b))
+        previous = current
+    return min(previous)
+
+
+def quote_keys(ref):
+    """'林後6:14～16' → [('林後', 6, 14), ('林後', 6, 15), ('林後', 6, 16)]."""
+    match = QUOTE_KEY_RE.match(ref)
+    if not match:
+        return []
+    book, chapter, first = match.group(1), int(match.group(2)), int(match.group(3))
+    last = int(match.group(4) or first)
+    return [(book, chapter, verse) for verse in range(first, min(last, first + 40) + 1)]
+
+
+def check_messages(messages, verses=None):
+    """Impossible chapters always; with Recovery Version text: OCR error rate on quoted verses, and lines of
+    verse text that OCR split away from their reference are moved out of the outline points."""
+    bad_refs = []
     for message in messages:
         label = f"第{message['number']}篇" if message['number'] else '篇題前'
-        texts = message['scripture'] + [item['text'] for item in message['items']]
-        for text in texts:
+        for text in message['scripture'] + [item['text'] for item in message['items']]:
             for piece, book, chapter, verse in parse_references(text):
                 if chapter > CHAPTERS[book] or chapter < 1 or not 1 <= verse <= 176:
                     bad_refs.append({'message': label, 'reference': piece, 'book': book, 'chapter': chapter,
                                      'verse': verse})
-            suspects += [{'message': label, **s} for s in near_term_suspects(text, terms)]
-    warnings = []
+    result = {'invalid_references': bad_refs, 'warnings': []}
     if bad_refs:
-        warnings.append(f'{len(bad_refs)} 個經節的章數不存在（多半是 OCR 認錯數字），見 invalid_references')
-    if suspects:
-        warnings.append(f'{len(suspects)} 處和教會專名／聖經人名只差一個字，可能是 OCR 認錯，見 term_suspects')
-    return {'invalid_references': bad_refs, 'term_suspects': suspects, 'warnings': warnings}
+        result['warnings'].append(f'{len(bad_refs)} 個經節的章數不存在（多半是 OCR 認錯數字），見 invalid_references')
+    if verses is None:
+        return result
+    checked, errors, chars, worst, unknown, moved = 0, 0, 0, [], [], 0
+    for message in messages:
+        label = f"第{message['number']}篇" if message['number'] else '篇題前'
+        candidates = []
+        for quote in message.get('quotes', []):
+            keys = quote_keys(quote['ref'])
+            texts = [hanzi(verses[k]) for k in keys if k in verses]
+            if keys and not texts:
+                unknown.append({'message': label, 'ref': quote['ref']})
+            candidates += texts
+            ocr = hanzi(quote['text'])
+            if len(keys) == 1 and texts and len(ocr) >= 4:
+                distance = fitting_distance(ocr, texts[0])
+                checked, errors, chars = checked + 1, errors + distance, chars + len(ocr)
+                if distance:
+                    worst.append({'message': label, 'ref': quote['ref'], 'errors': distance, 'ocr': quote['text'],
+                                  'recovery_version': verses[keys[0]]})
+        kept, message['verse_text'] = [], []
+        for item in message['items']:
+            text = hanzi(item['text'])
+            if not item['level'] and len(text) >= 6 and any(
+                    len(set(text) & set(c)) >= 0.7 * len(set(text)) and fitting_distance(text, c) <= 0.15 * len(text)
+                    for c in candidates):
+                message['verse_text'].append(item['text'])
+                moved += 1
+            else:
+                kept.append(item)
+        message['items'] = kept
+    worst.sort(key=lambda w: -w['errors'])
+    result['verse_check'] = {
+        'quotes_checked': checked, 'ocr_chars': chars, 'errors': errors,
+        'cer': round(errors / chars, 4) if chars else None, 'verse_text_lines_moved': moved,
+        'unknown_refs': unknown[:50], 'worst': worst[:40],
+    }
+    if unknown:
+        result['warnings'].append(f'{len(unknown)} 個引用經文在恢復本找不到（可能 OCR 認錯章節），見 verse_check.unknown_refs')
+    return result
 
 
-def render_pages(pdf_path, dpi=300):
-    """Yield (page number, JPEG bytes) small enough for Drive OCR."""
+def page_count(pdf_path):
+    import pymupdf
+    with pymupdf.open(pdf_path) as document:
+        return document.page_count
+
+
+def render_pages(pdf_path, only=None, dpi=300):
+    """Yield (page number, JPEG bytes) small enough for Drive OCR; only: page numbers to render (default all)."""
     import pymupdf
     with pymupdf.open(pdf_path) as document:
         for number, page in enumerate(document, 1):
+            if only is not None and number not in only:
+                continue
             for scale_dpi, quality in ((dpi, 90), (dpi, 75), (int(dpi * 0.8), 75), (int(dpi * 0.6), 70)):
                 pixmap = page.get_pixmap(dpi=scale_dpi, colorspace=pymupdf.csGRAY)
                 data = pixmap.tobytes('jpeg', jpg_quality=quality)
@@ -160,10 +212,12 @@ def ocr_text_to_page(text):
     """OCR text → the page structure outline_pdf_to_md expects (line order as y; no font size)."""
     text = text.lstrip('﻿').replace('\r', '')
     lines = [line for line in text.split('\n') if line.strip() and not set(line.strip()) <= {'_'}]
-    # 頁高 100：第一行 y=0、最後一行 y=100，一定落在頁首／頁尾區（上下 8%），可被當成重複的頁首頁尾刪除
-    step = 100 / (len(lines) - 1) if len(lines) > 1 else 0
+    # 頁高 100：前兩行 y=0、最後兩行 y=100，落在頁首／頁尾區（上下 8%），重複的頁首頁尾與頁碼會被刪除；
+    # OCR 常把頁碼和版權行（2026 Living Stream Ministry）排成最後兩行。
+    def y(index):
+        return 0 if index < 2 else 100 if index >= len(lines) - 2 else 50
     return {'height': 100, 'width': 1, 'lines': [
-        {'text': line, 'y': index * step, 'x': 0, 'size': 0} for index, line in enumerate(lines)]}
+        {'text': line, 'y': y(index), 'x': 0, 'size': 0} for index, line in enumerate(lines)]}
 
 
 def rejected_language(error):
@@ -172,25 +226,30 @@ def rejected_language(error):
     return status == 400 and b'ocrLanguage' in (getattr(error, 'content', b'') or b'')
 
 
-def run(pdf_path, cache_dir, output_dir, service, language=None, log=print):
+def run(pdf_path, cache_dir, output_dir, service, language=None, log=print, recovery_version_dir=None):
     pdf_path, cache_dir = Path(pdf_path), Path(cache_dir)
+    verses = load_recovery_version(recovery_version_dir) if recovery_version_dir else None
+    if verses is not None:
+        log(f'恢復本經文 {len(verses)} 節（用來檢查 OCR 準確度）')
     cache_dir.mkdir(parents=True, exist_ok=True)
-    pages = []
-    for number, image in render_pages(pdf_path):
-        cached = cache_dir/f'{number:03d}.txt'
-        if not cached.exists():
-            try:
-                text = google_ocr(service, image, language)
-            except Exception as error:
-                if not (language and rejected_language(error)):
-                    raise
-                log(f'Drive 不接受語言提示 {language!r}，改用自動偵測語言')
-                language = None
-                text = google_ocr(service, image, language)
-            cached.write_text(text, encoding='utf-8')
-            log(f'第 {number} 頁 OCR 完成（{len(image) // 1000} KB）')
-        pages.append(ocr_text_to_page(cached.read_text(encoding='utf-8')))
-    report = outline.convert(pdf_path, output_dir, pages=pages, checks=check_messages)
+    cached_page = lambda number: cache_dir/f'{number:03d}.txt'
+    count = page_count(pdf_path)
+    missing = {n for n in range(1, count + 1) if not cached_page(n).exists()}
+    log(f'{count} 頁，已有 OCR 快取 {count - len(missing)} 頁，要 OCR {len(missing)} 頁')
+    for number, image in render_pages(pdf_path, only=missing):
+        cached = cached_page(number)
+        try:
+            text = google_ocr(service, image, language)
+        except Exception as error:
+            if not (language and rejected_language(error)):
+                raise
+            log(f'Drive 不接受語言提示 {language!r}，改用自動偵測語言')
+            language = None
+            text = google_ocr(service, image, language)
+        cached.write_text(text, encoding='utf-8')
+        log(f'第 {number} 頁 OCR 完成（{len(image) // 1000} KB）')
+    pages = [ocr_text_to_page(cached_page(n).read_text(encoding='utf-8')) for n in range(1, count + 1)]
+    report = outline.convert(pdf_path, output_dir, pages=pages, checks=lambda m: check_messages(m, verses))
     report['ocr'] = {'engine': 'google-drive', 'language': language or 'auto', 'cache': str(cache_dir)}
     (Path(output_dir)/f'{pdf_path.stem}.report.json').write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
