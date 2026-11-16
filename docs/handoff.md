@@ -47,7 +47,7 @@ https://meeting-live-captions.livecap-worker.workers.dev（Worker `meeting-live-
 ## 下一步
 
 1. 依 [spec-large-meeting.md](spec-large-meeting.md) 執行：M0 收尾 → M1 綱要輸入 → M2 經文對齊 → M3 訓練資料 → M4 微調 → M5 Modal 部署 → M6 MEET 驗收與彩排。進度記在 [tasks/2026-11-16-large-meeting-accuracy.md](tasks/2026-11-16-large-meeting-accuracy.md)。
-2. 開工前向使用者確認 spec 第 8 節（綱要範例、R2 存經文、Modal 帳號、聚會規模）。
+2. 開工前向使用者確認 spec 第 8 節（R2 存經文、Modal 帳號、聚會規模）。綱要範例已在 Drive（`ex_TS26TRN_zht.pdf`），轉換方法與工具見 [outline-conversion.md](outline-conversion.md)。
 3. 收音：現場用混音器直接接線，仍是最便宜、效果最大的改善。
 
 ## 主要程式與筆記本
@@ -69,4 +69,4 @@ https://meeting-live-captions.livecap-worker.workers.dev（Worker `meeting-live-
 - `npm test`；`CHROMIUM_PATH=/opt/pw-browsers/chromium node --test scripts/ui-smoke.mjs`；`npm run check:cloudflare`。
 - Python：`.venv/bin/python -m unittest test.test_evaluate_meet test.test_context_experiment`（`.venv` 需 rapidfuzz==3.14.1、opencc-python-reimplemented==0.1.7、numpy；讀音表另需 pypinyin==0.55.0、jieba==0.42.1）。
 - Node fetch 不走代理：正式站 API 測試用 `NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt`；Playwright 用 `proxy: {server: process.env.HTTPS_PROXY}`。
-- 已知：`test.test_colab_notebook` 1 個既存失敗（cloud_whisper_lora）；網站缺 favicon。
+- 已知：網站缺 favicon。
