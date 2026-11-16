@@ -60,7 +60,7 @@ class OutlineOcrTests(unittest.TestCase):
         texts = [PAGE_ONE, PAGE_TWO, PAGE_THREE]
         calls = []
 
-        def fake_ocr(service, image, language='zh-TW'):
+        def fake_ocr(service, image, language='zh'):
             calls.append(image)
             return texts[len(calls) - 1]
 
@@ -85,7 +85,49 @@ class OutlineOcrTests(unittest.TestCase):
             self.assertEqual([r['reference'] for r in report['invalid_references']], ['弗七3'])
             self.assertIn(('神的經論', '神的經綸'), [(s['ocr'], s['term']) for s in report['term_suspects']])
             saved = json.loads((folder/'out'/'outline.report.json').read_text(encoding='utf-8'))
-            self.assertEqual(saved['ocr']['engine'], 'google-drive')
+            self.assertEqual(saved['ocr'], {'engine': 'google-drive', 'language': 'zh', 'cache': str(folder/'cache')})
+
+    @unittest.skipUnless(importlib.util.find_spec('googleapiclient'), 'google-api-python-client not installed')
+    def test_google_ocr_sends_iso_language_and_does_not_retry_client_errors(self):
+        from googleapiclient.errors import HttpError
+        calls = []
+
+        class Request:
+            def __init__(self, action):
+                self.action = action
+
+            def execute(self):
+                return self.action()
+
+        class Files:
+            def __init__(self, fail):
+                self.fail = fail
+
+            def create(self, **kwargs):
+                calls.append(('create', kwargs['ocrLanguage'], kwargs['body']['mimeType']))
+                if self.fail:
+                    def error():
+                        raise HttpError(mock.Mock(status=400, reason='Invalid Value'), b'{}')
+                    return Request(error)
+                return Request(lambda: {'id': 'doc'})
+
+            def export(self, **kwargs):
+                calls.append(('export', kwargs['mimeType']))
+                return Request(lambda: '\ufeff第一篇\n'.encode())
+
+            def delete(self, **kwargs):
+                calls.append(('delete', kwargs['fileId']))
+                return Request(lambda: None)
+
+        service = mock.Mock(files=lambda: Files(fail=False))
+        self.assertEqual(outline_ocr.google_ocr(service, b'jpeg'), '第一篇\n')
+        self.assertEqual(calls, [('create', 'zh', 'application/vnd.google-apps.document'), ('export', 'text/plain'),
+                                 ('delete', 'doc')])
+        calls.clear()
+        with mock.patch.object(outline_ocr.time, 'sleep') as sleep, self.assertRaises(HttpError):
+            outline_ocr.google_ocr(mock.Mock(files=lambda: Files(fail=True)), b'jpeg')
+        self.assertEqual(len(calls), 1)
+        sleep.assert_not_called()
 
     @unittest.skipUnless(importlib.util.find_spec('pymupdf'), 'PyMuPDF not installed')
     def test_rendered_pages_fit_drive_ocr_limit(self):

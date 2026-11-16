@@ -131,8 +131,11 @@ def render_pages(pdf_path, dpi=300):
             yield number, data
 
 
-def google_ocr(service, image_bytes, language='zh-TW', retries=3):
-    """Upload as a Google Doc with OCR, export plain text, delete the temporary Doc."""
+def google_ocr(service, image_bytes, language='zh', retries=3):
+    """Upload as a Google Doc with OCR, export plain text, delete the temporary Doc.
+
+    language: ISO 639-1 hint (Drive v3 rejects 'zh-TW'); the OCR keeps the characters on the page, so
+    Traditional Chinese stays Traditional."""
     from googleapiclient.http import MediaIoBaseUpload
     for attempt in range(retries):
         try:
@@ -145,8 +148,9 @@ def google_ocr(service, image_bytes, language='zh-TW', retries=3):
             finally:
                 service.files().delete(fileId=created['id']).execute()
             return data.decode('utf-8-sig') if isinstance(data, bytes) else data
-        except Exception:  # Drive 偶爾回 429/5xx：稍等再試
-            if attempt == retries - 1:
+        except Exception as error:  # Drive 偶爾回 429/5xx：稍等再試；其他錯誤（例如 400 參數錯）直接報錯
+            status = getattr(getattr(error, 'resp', None), 'status', None)
+            if attempt == retries - 1 or (status is not None and status != 429 and status < 500):
                 raise
             time.sleep(5 * (attempt + 1))
 
@@ -161,7 +165,7 @@ def ocr_text_to_page(text):
         {'text': line, 'y': index * step, 'x': 0, 'size': 0} for index, line in enumerate(lines)]}
 
 
-def run(pdf_path, cache_dir, output_dir, service, language='zh-TW', log=print):
+def run(pdf_path, cache_dir, output_dir, service, language='zh', log=print):
     pdf_path, cache_dir = Path(pdf_path), Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     pages = []

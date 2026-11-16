@@ -49,7 +49,7 @@
 
 | 選項 | 判斷 |
 | --- | --- |
-| **Google 雲端硬碟 OCR**（採用） | 免費，用使用者自己的帳號，不必安裝；印刷體繁體中文品質好。每頁轉成 < 2 MB 的 JPEG（Drive OCR 的上限），以 `ocrLanguage=zh-TW` 建暫存 Google 文件，匯出文字後刪除 |
+| **Google 雲端硬碟 OCR**（採用） | 免費，用使用者自己的帳號，不必安裝；印刷體繁體中文品質好。每頁轉成 < 2 MB 的 JPEG（Drive OCR 的上限），以 `ocrLanguage=zh`（Drive v3 只接受 ISO 639-1，`zh-TW` 會回 400；只是語言提示，繁體字照原樣輸出）建暫存 Google 文件，匯出文字後刪除 |
 | Tesseract `chi_tra` | 免費，但中文印刷體錯字明顯較多 |
 | PaddleOCR／RapidOCR | 品質好，但模型在執行時才下載，版本相依多；Drive OCR 不夠好時再當第二引擎比較 |
 | 付費 OCR API、視覺語言模型 | 不符合零費用 |
