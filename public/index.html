@@ -71,6 +71,7 @@
       <label>詞彙校正表<textarea id="glossary" rows="10" spellcheck="false"></textarea></label>
       <div class="actions"><button id="saveGlossary">儲存詞彙表</button><button id="resetGlossary">清空詞彙表</button></div>
       <label>本場綱要（選填）<textarea id="outline" rows="6" spellcheck="false" maxlength="60000" placeholder="貼上當堂信息的綱要：篇題、讀經、要點（從 PDF 複製的文字或轉好的 Markdown 都可以）"></textarea></label>
+      <label class="check"><input type="checkbox" id="verseAlign" checked> 讀經時換成恢復本經文並標出經節（需本場綱要；廣播房間的房主）</label>
       <p id="outlineSummary" class="hint" role="status" aria-live="polite"></p>
       <label>或從檔案載入綱要（PDF、.md、.txt）<input id="outlineFile" type="file" accept=".pdf,application/pdf,.md,.markdown,.txt,text/plain,text/markdown"></label>
       <button id="stopOutlineOcr" class="compact" hidden>停止辨識（保留已辨識的頁）</button>

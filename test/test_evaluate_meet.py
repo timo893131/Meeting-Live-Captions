@@ -158,6 +158,41 @@ class ScoringTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 ev.main()
 
+    def test_verse_refs_keep_ranges_and_full_width_digits(self):
+        self.assertEqual(ev.verse_refs('讀經：拉一１～４，代下三六２２～２３，弗一23，三17～19，門16'),
+                         [('拉', 1, 1, 4), ('代下', 36, 22, 23), ('弗', 1, 23, 23), ('弗', 3, 17, 19), ('門', 1, 16, 16)])
+        recovery = {('弗', 1, v): f'v{v}' for v in range(1, 24)}
+        self.assertEqual([v['verse'] for v in ev.verses_for([('弗', 1, 22, 30), ('弗', 1, 23, 23)], recovery)], [22, 23])
+
+    def test_verse_alignment_variant_on_a_bible_reading(self):
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Path(folder)/'archive'
+            (archive/'recovery-version'/'text').mkdir(parents=True)
+            # Made-up text in the shape of a chapter file (not Bible text).
+            (archive/'recovery-version'/'text'/'49-以弗所書.txt').write_text(
+                '以弗所書\n以弗所書 第 6 章\n壹 配搭\n1 弟兄們在召會中彼此配搭，一同事奉主；\n2 眾聖徒同心合意，在禱告上恆切不住。\n',
+                encoding='utf-8')
+            meet = Path(folder)/'bible'; meet.mkdir()
+            (meet/'01.mp3').write_bytes(b'ID3synthetic')
+            (meet/'01.txt').write_text('配搭\n弟兄們在召會中彼此配搭，一同事奉主；\n眾聖徒同心合意，在禱告上恆切不住。\n', encoding='utf-8')
+            (meet/'manifest.json').write_text(json.dumps([{'id': '01', 'book': 49, 'chapter': 6}]), encoding='utf-8')
+            (meet/'01.chrome.txt').write_text('上午10:00:00 配搭\n上午10:00:05 弟兄們在照會中彼此配達一同侍奉主\n'
+                                              '上午10:00:09 眾聖徒同心合意在禱告上恆切不住\n', encoding='utf-8')
+            sys.argv = ['evaluate_meet.py', '--meet', str(meet), '--output', str(Path(folder)/'run'), '--development',
+                        '--verses-archive', str(archive)]
+            ev.main()
+            report = json.loads((Path(folder)/'run/report.json').read_text(encoding='utf-8'))
+            entry = report['pairs'][0]
+            condition = entry['conditions'][0]
+            self.assertEqual(entry['verses_given'], 2)
+            self.assertEqual(condition['verse_alignment']['segments_aligned'], 2)
+            website, aligned = condition['variants']['full/phonetic'], condition['variants']['full/phonetic_verses']
+            self.assertGreater(website['cer'], 0)
+            self.assertEqual(aligned['cer'], 0)
+            self.assertGreater(aligned['chars_fixed_vs_previous'], 0)
+            self.assertEqual(aligned['chars_broken_vs_previous'], 0)
+            self.assertIn('經文對齊', (Path(folder)/'run/summary.md').read_text(encoding='utf-8'))
+
 class WorkersAITests(unittest.TestCase):
     def test_condition_names(self):
         self.assertEqual(ev.condition_name('cfvad10'), 'workers_ai_live_vad_10s')

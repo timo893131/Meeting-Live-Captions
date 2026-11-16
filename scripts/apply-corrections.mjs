@@ -1,13 +1,16 @@
 // Apply the live caption corrections (exact glossary, then same-sound church terms) to recognized segments,
 // exactly as public/app.js does for each caption. Input/output JSON on stdin/stdout:
 //   in:  {"segments": ["text", ...], "glossary": "optional textarea content", "term_set": "all"|"core", "near": false,
-//         "outline": "optional outline text (this meeting's terms; near sounds only for built-in terms it uses)"}
+//         "outline": "optional outline text (this meeting's terms; near sounds only for built-in terms it uses)",
+//         "verses": optional [{book, chapter, verse, text}] (verse alignment, as /api/verses gives the host)}
+//   out also: "aligned" (text after verse alignment, without the reference label) and "alignments" ([{label, identity}|null])
 //   out: {"glossary": [...], "phonetic": [...], "changes": [[{from,to,index}], ...]}
 import {readFileSync} from 'node:fs';
 import {startingGlossary, parseGlossary, correctText} from '../glossary.js';
 import * as pinyinData from '../public/pinyin-zh.js';
 import {DEFAULT_TERMS, CORE_DEFAULT_TERMS, NEAR_SKIP, loadPinyin, parseTerms, phoneticCorrect} from '../public/phonetic.js';
 import {parseOutline, correctionOptions} from '../public/outline.js';
+import {alignCaption, preparePassages} from '../public/verse-align.js';
 
 const input = JSON.parse(readFileSync(0, 'utf8'));
 if (!Array.isArray(input.segments) || input.segments.some(s => typeof s !== 'string')) throw new Error('Expected {segments: string[]}');
@@ -20,11 +23,16 @@ const outline = typeof input.outline === 'string' && input.outline.trim()
   ? parseOutline(input.outline, {common: new Set(pinyinData.COMMON.split('|')), known: DEFAULT_TERMS}) : null;
 const options = correctionOptions(outline, {nearSkip: NEAR_SKIP});
 const pairs = parseGlossary(textarea), terms = [...base, ...options.terms, ...parseTerms(textarea)];
-const glossary = [], phonetic = [], changes = [];
+const passages = Array.isArray(input.verses) ? preparePassages(input.verses) : null;
+const glossary = [], phonetic = [], changes = [], aligned = [], alignments = [];
 for (const segment of input.segments) {
   const exact = correctText(segment, pairs);
   const result = phoneticCorrect(exact, terms, options.nearTerms ? {nearTerms: options.nearTerms} : {near: input.near === true});
   glossary.push(exact); phonetic.push(result.text); changes.push(result.changes);
+  if (passages) {
+    const verse = alignCaption(result.text, passages);
+    aligned.push(verse ? verse.text : result.text); alignments.push(verse && {label: verse.label, identity: verse.identity});
+  }
 }
-process.stdout.write(JSON.stringify({glossary, phonetic, changes, terms,
+process.stdout.write(JSON.stringify({glossary, phonetic, changes, terms, ...(passages ? {aligned, alignments} : {}),
   outline: outline && {title: outline.title, terms: outline.terms, known: outline.known, refs: outline.refs.length}}));
