@@ -1,7 +1,7 @@
 # 工作卡：大型聚會最高準確度（綱要校正＋微調 Whisper）
 
 - 任務 ID／日期：2026-11-16-large-meeting-accuracy
-- 狀態：in progress（M0 等 Colab 結果；M1 前置：綱要轉換工具完成）
+- 狀態：in progress（M0 同音放寬第 3 輪仍 unrun；M1 開 PR；M2 下一步）
 - 規格：[../spec-large-meeting.md](../spec-large-meeting.md)（目標、使用者決策、里程碑、契約、驗收門檻、風險）
 - 主分類：speech-finetuning；次分類依里程碑：meeting-ui-ux、meeting-realtime、speech-data-preparation、speech-evaluation、meeting-verification-release。
 - 基準：main 1e04c38（正式網站）；開發分支 `claude/peaceful-keller-kbipya`（PR #16）；MEET 網站條件 CER 14.49%、專名 93/124。
@@ -12,7 +12,7 @@
 | 里程碑 | 狀態 | 下一步 |
 | --- | --- | --- |
 | M0 收尾（同音放寬第 3 輪、PR #16） | 2026-11-16：Drive 最新結果 `20261114-135356-near` 是**第 2 輪**（早於第 3 輪 commit 121384b；正確全文多改 664 處）。第 3 輪 unrun。`test_colab_notebook` 既存失敗已修（套用 b316493）。 | 使用者說已跑，但 2026-11-16 Drive 上找不到新的 `*-near` 結果（最新仍是第 2 輪）→ 請使用者確認第 4、5 格是否有錯誤 |
-| M1 綱要輸入與本場詞表 | 實作完成（b926ac6）：`public/outline.js`、設定「本場綱要」、`evaluate_meet.py --outline`；綱要轉換見 [../outline-conversion.md](../outline-conversion.md) | 第 2 輪只差「教會專名 +3%」一項；等使用者決定是否以「不改壞＋本場新詞」標準上線 |
+| M1 綱要輸入與本場詞表 | 實作完成（b926ac6）：`public/outline.js`、設定「本場綱要」、`evaluate_meet.py --outline`；綱要轉換見 [../outline-conversion.md](../outline-conversion.md) | 使用者決定以「不改壞」標準上線 → PR 審核 → 合併後正式網址驗證 |
 | M2 經文對齊 | 未開始；2026-11-16 使用者**同意**恢復本經文存 Cloudflare R2 私人 bucket、只給房主讀取 | M1 之後 |
 | M3 訓練資料 | 未開始 | — |
 | M4 微調 | 未開始 | — |
