@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import QRCode from 'qrcode';
 import {cleanTranscript} from './transcript.js';
+import {parseVerseRefs, readVerses} from './verses.js';
 
 const LIFETIME=12*60*60*1000;
 // Server-side speech recognition: Whisper large-v3-turbo on Workers AI (evaluated on the MEET test set).
@@ -33,6 +34,19 @@ async function transcribe(request,env) {
     return json({error:'辨識服務暫時無法使用。',code:'error'},502);
   }
 }
+// Recovery Version verses for this meeting's outline (M2): only a room's host, never cached (see verses.js).
+async function verses(request,env,url) {
+  if(!env.SCRIPTURE)return json({error:'此網站未設定經文資料。',code:'unavailable'},501);
+  const id=url.searchParams.get('room');
+  if(!/^[a-f0-9]{10}$/.test(id||''))return json({error:'需要房主權限（廣播房間）。'},403);
+  const check=await env.ROOMS.get(env.ROOMS.idFromName(id)).fetch(new Request('https://internal/host',{headers:{Authorization:request.headers.get('Authorization')||''}}));
+  if(!check.ok)return json({error:'沒有房主權限。'},403);
+  const parsed=parseVerseRefs(url.searchParams.get('refs'));
+  if(parsed.error)return json({error:parsed.error},400);
+  try {
+    return json(await readVerses(parsed.refs,async key=>{const object=await env.SCRIPTURE.get(key);return object?object.json():null;}));
+  } catch { return json({error:'經文資料暫時無法讀取。',code:'error'},502); }
+}
 const hex=buffer=>Array.from(new Uint8Array(buffer),b=>b.toString(16).padStart(2,'0')).join('');
 async function passwordHash(password,salt) {
   const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveBits']);
@@ -46,7 +60,8 @@ function equal(a,b) {
 export default {
   async fetch(request,env) {
     const url=new URL(request.url);
-    if(url.pathname==='/api/health')return json({ok:true,runtime:'cloudflare',transcribe:!!env.AI});
+    if(url.pathname==='/api/health')return json({ok:true,runtime:'cloudflare',transcribe:!!env.AI,verses:!!env.SCRIPTURE});
+    if(url.pathname==='/api/verses'&&request.method==='GET')return verses(request,env,url);
     if(url.pathname==='/api/transcribe'&&request.method==='POST')return transcribe(request,env);
     if(url.pathname==='/api/rooms' && request.method==='POST') {
       const gate=env.CREATE_LIMIT.get(env.CREATE_LIMIT.idFromName('create-limit'));
@@ -145,6 +160,10 @@ export class CaptionRoom extends DurableObject {
     if(url.pathname==='/close'&&request.method==='DELETE') {
       if(!equal(request.headers.get('Authorization'),'Bearer '+this.meta.hostToken))return json({error:'沒有房主權限。'},403);
       await this.closeRoom();return json({ok:true});
+    }
+    if(url.pathname==='/host') {  // /api/verses: is this the room's host?
+      if(!equal(request.headers.get('Authorization'),'Bearer '+this.meta.hostToken))return json({error:'沒有房主權限。'},403);
+      return json({ok:true});
     }
     if(url.pathname==='/qr') {
       if(!equal(request.headers.get('Authorization'),'Bearer '+this.meta.hostToken))return json({error:'沒有房主權限。'},403);

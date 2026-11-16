@@ -26,3 +26,24 @@ test('Cloudflare assets, password/invite auth, broadcast, QR and room deletion',
  await viewer.next('closed');assert.equal((await fetch(base+'/api/qr?room='+room.id)).status,404);
  const unavailable=await fetch(base+'/api/rooms/invalid',{method:'DELETE'});assert.equal(unavailable.status,404);
 });
+
+// Verse text (M2): host only, through the room; never cached. CAPTION_TEST_VERSE='弗1:23' also checks a verse is there
+// (after scripts/upload_scripture.py has filled the bucket).
+test('verses: only the host of an open room may read them',{timeout:20000},async t=>{
+ const health=await (await fetch(base+'/api/health')).json();
+ if(!health.verses){t.skip('SCRIPTURE bucket not bound');return;}
+ const room=await (await fetch(base+'/api/rooms',{method:'POST'})).json();
+ t.after(()=>fetch(base+'/api/rooms/'+room.id,{method:'DELETE',headers:{Authorization:'Bearer '+room.hostToken}}).catch(()=>{}));
+ const ask=(query,token)=>fetch(base+'/api/verses?'+query,token?{headers:{Authorization:'Bearer '+token}}:{});
+ assert.equal((await ask('refs=弗1:23')).status,403);  // no room
+ assert.equal((await ask('room='+room.id+'&refs=弗1:23')).status,403);  // no token
+ assert.equal((await ask('room='+room.id+'&refs=弗1:23',room.viewerToken)).status,403);  // a viewer's invite is not enough
+ assert.equal((await ask('room='+room.id+'&refs=弗7:1',room.hostToken)).status,400);
+ const ok=await ask('room='+room.id+'&refs='+encodeURIComponent(process.env.CAPTION_TEST_VERSE||'弗1:23'),room.hostToken);
+ assert.equal(ok.status,200);assert.equal(ok.headers.get('cache-control'),'no-store');
+ const body=await ok.json();assert.ok(Array.isArray(body.verses)&&Array.isArray(body.missing));
+ if(process.env.CAPTION_TEST_VERSE)assert.equal(body.verses.length,1,'verse found in the bucket');
+ assert.equal((await fetch(base+'/api/rooms/'+room.id,{method:'DELETE',headers:{Authorization:'Bearer '+room.hostToken}})).status,200);
+ assert.equal((await ask('room='+room.id+'&refs=弗1:23',room.hostToken)).status,403);  // closed room
+});
+
