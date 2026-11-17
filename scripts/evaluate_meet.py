@@ -194,10 +194,11 @@ def bag_counts(hypothesis, spans):
     return out
 
 
-def corrections(segments, glossary=None, term_set='all', near=False, outline=None):
+def corrections(segments, glossary=None, term_set='all', near=False, outline=None, verses=None):
     payload = json.dumps(dict(segments=segments, term_set=term_set, near=near,
                               **({'glossary': glossary} if glossary is not None else {}),
-                              **({'outline': outline} if outline else {})))
+                              **({'outline': outline} if outline else {}),
+                              **({'verses': verses} if verses else {})))
     # NODE_BINARY lets Colab use a pinned Node from the nodejs-wheel-binaries package.
     result = subprocess.run([os.environ.get('NODE_BINARY', 'node'), str(ROOT/'scripts/apply-corrections.mjs')], input=payload, text=True,
                             capture_output=True, check=True)
@@ -216,7 +217,63 @@ def outline_term_counts(reference, hypothesis, terms):
                 outline_terms_bag_extra=sum(max(0, n - wanted.get(t, 0)) for t, n in found.items()))
 
 
-def score_variants(name, segments, reference_variants, spans_by_variant, converter, near=False, outline=None):
+MAX_VERSES = 300  # as the website asks /api/verses
+
+
+def judge_alignment(before, after, reference):
+    """One replaced caption against the reference: edits to fit it into the matching part of the reference, before
+    and after the replacement (better / same / worse). Spec M2: replacements must be the same or better >= 99%."""
+    from rapidfuzz import fuzz
+    from outline_ocr import fitting_distance
+    if not before or not after:
+        return dict(effect='same', edits_before=0, edits_after=0, reference='')
+    spot = fuzz.partial_ratio_alignment(after, reference)
+    start, end = max(0, spot.dest_start - len(before)), min(len(reference), spot.dest_end + len(before))
+    window = reference[start:end]
+    edits_before, edits_after = fitting_distance(before, window), fitting_distance(after, window)
+    effect = 'better' if edits_after < edits_before else 'worse' if edits_after > edits_before else 'same'
+    return dict(effect=effect, edits_before=edits_before, edits_after=edits_after, reference=window[len(before):len(before) + 60])
+
+
+def verse_refs(text):
+    """Outline-style references with ranges (弗一22～23，三17，拉一１～４) → [(book, chapter, from, to)]."""
+    from outline_pdf_to_md import REF_RE, BOOK_ABBREVIATIONS, CN_NUM, SINGLE_CHAPTER
+    from outline_ocr import chinese_number
+    books = '|'.join(sorted(BOOK_ABBREVIATIONS, key=len, reverse=True))
+    piece_re = re.compile(rf'^({books})?([{CN_NUM}]+)?(\d+)[上下]?(?:[～~\-－–](\d+))?')
+    refs = []
+    for match in REF_RE.finditer(unicodedata.normalize('NFKC', text).replace('~', '～')):
+        book = chapter = None
+        for piece in re.split(r'[，,、]', match.group(0)):
+            parsed = piece_re.match(piece)
+            if not parsed:
+                continue
+            book = parsed.group(1) or book
+            if parsed.group(2):
+                chapter = chinese_number(parsed.group(2))
+            elif book in SINGLE_CHAPTER:
+                chapter = 1
+            if book and chapter:
+                first = int(parsed.group(3))
+                refs.append((book, chapter, first, max(first, int(parsed.group(4) or first))))
+    return refs
+
+
+def verses_for(refs, recovery_version):
+    """The verses the website would fetch for these references (at most MAX_VERSES, each once, in order)."""
+    out, seen = [], set()
+    for book, chapter, first, last in refs:
+        for verse in range(first, min(last, first + 59) + 1):
+            key = (book, chapter, verse)
+            if key in seen or key not in recovery_version or len(out) >= MAX_VERSES:
+                continue
+            seen.add(key)
+            out.append(dict(book=book, chapter=chapter, verse=verse, text=recovery_version[key]))
+    return out
+
+
+def score_variants(name, segments, reference_variants, spans_by_variant, converter, near=False, outline=None,
+                   verses=None):
     # As on the website (the Worker converts Whisper's text to Traditional first), corrections run on
     # Traditional text; otherwise every Simplified character would count as a same-sound "fix".
     traditional = [converter.convert(s) for s in segments]
@@ -227,13 +284,27 @@ def score_variants(name, segments, reference_variants, spans_by_variant, convert
              'phonetic_core': ''.join(core['phonetic']), 'phonetic': ''.join(out['phonetic'])}
     if near:  # candidate rule: near sounds (tone, Taiwan mergers); compared with 'phonetic' (the website today)
         texts['phonetic_near'] = ''.join(corrections(traditional, near=True)['phonetic'])
-    outline_terms = []
-    if outline:  # this meeting's outline (M1); compared with 'phonetic' (the website today)
-        with_outline = corrections(traditional, outline=outline)
-        texts['phonetic_outline'] = ''.join(with_outline['phonetic'])
-        outline_terms = with_outline['outline']['terms']
+    outline_terms, alignments = [], []
+    if outline or verses:  # this meeting's outline (M1) and verse alignment (M2); compared with 'phonetic' (the website today)
+        with_outline = corrections(traditional, outline=outline, verses=verses)
+        if outline:
+            texts['phonetic_outline'] = ''.join(with_outline['phonetic'])
+            outline_terms = with_outline['outline']['terms']
+        if verses:
+            texts['phonetic_verses'] = ''.join(with_outline['aligned'])
+            alignments = with_outline['alignments']
     result = dict(condition=name, segments=len(segments),
                   phonetic_changes=sum(len(c) for c in out['changes']), variants={})
+    if verses:
+        done = [(i, a) for i, a in enumerate(alignments) if a]
+        judged = [judge_alignment(normalize(with_outline['phonetic'][i], converter), normalize(with_outline['aligned'][i], converter),
+                                  reference_variants['full']) for i, _a in done]
+        examples = [dict(segment=i, label=a['label'], identity=a['identity'], before=with_outline['phonetic'][i][:60],
+                         after=with_outline['aligned'][i][:60], **j) for (i, a), j in zip(done, judged)]
+        result['verse_alignment'] = dict(
+            verses=len(verses), segments_aligned=len(done), better=sum(j['effect'] == 'better' for j in judged),
+            same=sum(j['effect'] == 'same' for j in judged), worse=sum(j['effect'] == 'worse' for j in judged),
+            examples=examples[:30], worse_examples=[e for e in examples if e['effect'] == 'worse'][:30])
     if outline:
         result['outline'] = dict(terms=outline_terms, known=with_outline['outline']['known'],
                                  refs=with_outline['outline']['refs'], title=with_outline['outline']['title'])
@@ -247,7 +318,7 @@ def score_variants(name, segments, reference_variants, spans_by_variant, convert
             if outline:
                 metrics.update(outline_term_counts(reference, hypothesis, outline_terms))
             # Candidates (near sounds, the outline) are each compared with the website today ('phonetic').
-            base = kept.get('phonetic') if variant in ('phonetic_near', 'phonetic_outline') else previous
+            base = kept.get('phonetic') if variant in ('phonetic_near', 'phonetic_outline', 'phonetic_verses') else previous
             if base is not None:
                 metrics['chars_fixed_vs_previous'] = sum(1 for a, b in zip(base, ok) if b and not a)
                 metrics['chars_broken_vs_previous'] = sum(1 for a, b in zip(base, ok) if a and not b)
@@ -451,6 +522,9 @@ def main():
                         help="Also score this meeting's outline (variant phonetic_outline, vs phonetic): <pair>.outline.md "
                         'when present, otherwise (development only) a simulated outline from the reference: title, '
                         'subheadings and verse references, no body text')
+    parser.add_argument('--verses-archive', type=Path,
+                        help='twgbr-archive folder: also score verse alignment (variant phonetic_verses, vs phonetic) with '
+                        "the verses of each pair's outline, or of its chapter (Bible readings: manifest.json book/chapter)")
     parser.add_argument('--conditions', default='full,fixed15,vad15',
                         help='full (whole file), full_prompt (+Traditional prompt), fixed<N> / vad<N> (N-second live chunks), '
                         'cfvad<N> / cffixed<N> (the same chunks through Cloudflare Workers AI)')
@@ -496,11 +570,23 @@ def main():
     report = dict(created_at=datetime.now(timezone.utc).isoformat(timespec='seconds'), sealed_test=not args.development,
                   model=args.model_label, model_bin_sha256=sha256_file(Path(args.model_dir)/'model.bin') if args.model_dir else None,
                   normalizer='NFC + OpenCC s2tw (hypothesis) + keep CJK/Latin/digits, lowercase',
-                  phonetic_near=args.phonetic_near, outline=args.outline,
+                  phonetic_near=args.phonetic_near, outline=args.outline, verse_alignment=bool(args.verses_archive),
                   code_files={p: sha256_file(ROOT/p) for p in ['glossary.js', 'public/phonetic.js', 'public/church-terms.js',
                                                               'public/pinyin-zh.js', 'scripts/evaluate_meet.py']},
                   workers_ai_model=CF_MODEL if 'cf' in args.conditions else None,
                   pairs=[])
+    recovery_version, chapters_of = None, {}
+    if args.verses_archive:
+        from outline_ocr import load_recovery_version
+        recovery_version = load_recovery_version(args.verses_archive/'recovery-version'/'text')
+        if not recovery_version:
+            raise SystemExit(f'在 {args.verses_archive}/recovery-version/text 找不到恢復本經文')
+        manifest = meet/'manifest.json'
+        if manifest.exists():
+            from outline_pdf_to_md import BOOK_ABBREVIATIONS
+            for item in json.loads(manifest.read_text(encoding='utf-8')):
+                if 'book' in item and 'chapter' in item:
+                    chapters_of[item['id']] = (BOOK_ABBREVIATIONS[int(item['book']) - 1], int(item['chapter']))
     for pair in pairs:
         reference_text = clean_reference((meet/f'{pair}.txt').read_text(encoding='utf-8-sig'))
         references = {'full': normalize(reference_text), 'no_parentheses': normalize(without_parentheses(reference_text))}
@@ -531,6 +617,14 @@ def main():
                      reference_chars=len(references['full']), term_occurrences=len(spans['full']['church']),
                      name_occurrences=len(spans['full']['names']), conditions=[])
         entry.update(outline_check)
+        verses = None
+        if recovery_version is not None:
+            if pair in chapters_of:  # a Bible reading: the whole chapter
+                book, chapter = chapters_of[pair]
+                verses = verses_for([(book, chapter, 1, 200)], recovery_version)
+            elif outline:
+                verses = verses_for(verse_refs(outline), recovery_version)
+            entry['verses_given'] = len(verses or [])
         print(f'[{pair}] 參考文字 {entry["reference_chars"]} 字、教會專名 {entry["term_occurrences"]} 處、'
               f'人名地名 {entry["name_occurrences"]} 處', flush=True)
         if args.model_dir or args.reuse or re.search(r'\bcf', args.conditions):
@@ -568,7 +662,7 @@ def main():
                         raise SystemExit(3)
                 else:
                     raise SystemExit(f'Unknown condition: {condition}')
-                result, out = score_variants(name, texts, references, spans, converter, near=args.phonetic_near, outline=outline)
+                result, out = score_variants(name, texts, references, spans, converter, near=args.phonetic_near, outline=outline, verses=verses)
                 result.update(timing, prompt=prompt)
                 if reused:
                     result['reused_from'] = str(cached.parent)
@@ -585,7 +679,7 @@ def main():
         chrome = meet/f'{pair}.chrome.txt'
         if chrome.exists():
             texts = chrome_segments(chrome)
-            result, out = score_variants('chrome_export', texts, references, spans, converter, near=args.phonetic_near, outline=outline)
+            result, out = score_variants('chrome_export', texts, references, spans, converter, near=args.phonetic_near, outline=outline, verses=verses)
             result['source_sha256'] = sha256_file(chrome)
             entry['conditions'].append(result)
             (output/f'{pair}.chrome_export.json').write_text(json.dumps(dict(raw=texts, **out), ensure_ascii=False, indent=1), encoding='utf-8')
@@ -673,6 +767,24 @@ def main():
                 if o:
                     rows.append(f"- {entry['id']}：新詞 {len(o['terms'])}（{'、'.join(o['terms'][:12])}）；"
                                 f"專名 {len(o['known'])}；經節 {o['refs']}")
+    if args.verses_archive:
+        rows += ['', '經文對齊（phonetic_verses 對照網站現在 phonetic；修好／改壞字數見上表）', '',
+                 '| 測試 | 給的經文節數 | 字幕段數 | 換成經文的段數 | 變好 | 一樣 | 變差 |', '| --- | --- | --- | --- | --- | --- | --- |']
+        examples, worse, totals = [], [], [0, 0, 0, 0]
+        for entry in report['pairs']:
+            for cond in entry['conditions'][:1]:
+                v = cond.get('verse_alignment')
+                if v:
+                    rows.append(f"| {entry['id']} | {v['verses']} | {cond['segments']} | {v['segments_aligned']} | "
+                                f"{v['better']} | {v['same']} | {v['worse']} |")
+                    for i, k in enumerate(['segments_aligned', 'better', 'same', 'worse']):
+                        totals[i] += v[k]
+                    examples += [f"- {entry['id']} {e['label']}（{e['identity']}）：{e['before']} → {e['after']}" for e in v['examples'][:2]]
+                    worse += [f"- {entry['id']} {e['label']}（{e['identity']}，{e['edits_before']}→{e['edits_after']}）：{e['before']} → "
+                              f"{e['after']}｜參考：{e['reference']}" for e in v['worse_examples']]
+        accuracy = f"{(totals[1] + totals[2]) / totals[0]:.1%}" if totals[0] else '—'
+        rows += ['', f"合計：換了 {totals[0]} 段，變好 {totals[1]}、一樣 {totals[2]}、變差 {totals[3]}（一樣或更好 {accuracy}）", '',
+                 '變差的段落', ''] + (worse or ['（沒有）']) + ['', '例子（每篇前 2 段）', ''] + examples
     summary = '\n'.join(rows)
     (output/'summary.md').write_text(summary+'\n', encoding='utf-8')
     print('\n'+summary)

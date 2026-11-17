@@ -269,6 +269,39 @@ test('a scanned PDF outline is read with in-browser OCR from files on this site'
   assert.deepEqual(external, []);  // pdf.js, tesseract.js, its core and the Chinese model all come from this site
 });
 
+test('verse alignment: the host fetches the outline verses with the host token and shows the verse text', async t => {
+  const {page} = await fixture(t);
+  const asked = [];
+  await page.route('**/api/health', async route => {
+    const real = await (await route.fetch()).json();
+    await route.fulfill({json: {...real, transcribe: false, verses: true}});
+  });
+  await page.route('**/api/verses?*', async route => {
+    const url = new URL(route.request().url());
+    asked.push({room: url.searchParams.get('room'), refs: url.searchParams.get('refs'), auth: route.request().headers().authorization});
+    await route.fulfill({json: {verses: [  // made-up text, not Bible verses
+      {ref: '弗6:1', book: '弗', chapter: 6, verse: 1, text: '弟兄們在召會中彼此配搭，一同事奉主；'},
+      {ref: '弗6:2', book: '弗', chapter: 6, verse: 2, text: '眾聖徒同心合意，在禱告上恆切不住。'}], missing: []}});
+  });
+  await page.reload();
+  await page.locator('#settings > summary').click();
+  await page.locator('#outline').fill('## 第一篇　配搭\n\n讀經：弗六1～2\n\n- 壹 在召會中配搭—弗六1。');
+  await expect(page.locator('#outlineSummary')).toContainText('需在廣播房間');
+  await hostRoom(page);
+  await expect(page.locator('#outlineSummary')).toContainText('已載入綱要的經文 2 節');
+  const saved = await page.evaluate(() => JSON.parse(sessionStorage.getItem('meetingCaptionRoom')));
+  assert.deepEqual(asked.at(-1), {room: saved.room.id, refs: '弗6:1-2,弗6:1', auth: 'Bearer ' + saved.room.hostToken});
+  await start(page);
+  await page.waitForFunction(() => performance.getEntriesByType('resource').some(entry => entry.name.endsWith('/pinyin-zh.js')));
+  await page.evaluate(() => window.__speech.emit('我們來讀弟兄們在照會中彼此配達一同侍奉主'));
+  await expect(page.locator('#captions')).toContainText('我們來讀弟兄們在召會中彼此配搭，一同事奉主；（弗六1）');
+  await page.evaluate(() => window.__speech.emit('今天我們要來看召會生活'));
+  await expect(page.locator('#captions')).toContainText('今天我們要來看召會生活');
+  await page.locator('#verseAlign').uncheck();
+  await page.evaluate(() => window.__speech.emit('眾聖徒同心合意在禱告上恆切不住'));
+  await expect(page.locator('#captions')).toContainText('眾聖徒同心合意在禱告上恆切不住');
+});
+
 function silentWav(seconds) {
   const rate = 16000, samples = rate*seconds, wav = Buffer.alloc(44 + samples*2);
   wav.write('RIFF', 0); wav.writeUInt32LE(36 + samples*2, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);

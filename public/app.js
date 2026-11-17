@@ -1,6 +1,7 @@
 import {defaultGlossary, startingGlossary, parseGlossary, correctText} from '/glossary.js';
 import {DEFAULT_TERMS, NEAR_SKIP, loadPinyin, parseTerms, phoneticCorrect, pinyinReady} from '/phonetic.js';
 import {parseOutline, correctionOptions, splitMessages} from '/outline.js';
+import {preparePassages, alignCaption} from '/verse-align.js';
 import {BIBLE_BOOKS, CORE_TERMS, LIFE_STUDY_TERMS, BIBLE_NAMES} from '/church-terms.js';
 import {ALWAYS_CORRECTED} from '/always-corrected.js';
 import {RATE, createSegmenter, startMicrophoneChunks, encodeWav, createOrderedQueue} from '/speech-chunker.js';
@@ -16,7 +17,7 @@ let recognition = null, wantsAudio = false, speechGeneration = 0, restartTimer =
 let micState = 'idle', wakeLock = null, wakePending = false;
 // Whisper on Cloudflare Workers AI (server-side): microphone chunks cut at pauses. When Chrome's recognizer is
 // available it runs alongside as an instant grey preview; it also takes over if Whisper is unavailable.
-let serverSpeech = false, whisper = null;
+let serverSpeech = false, serverVerses = false, whisper = null;
 const usingWhisper = () => serverSpeech && $('engine').value === 'whisper' && !fileSource;
 // Audio-file test: the file plays into a Web Audio stream (not the speakers) whose track is recognized.
 let fileSource = null;
@@ -244,6 +245,47 @@ function captionCorrection() {
   return {glossary: parseGlossary(value), terms: [...DEFAULT_TERMS, ...outline.terms, ...parseTerms(value)],
     options: outline.nearTerms ? {nearTerms: outline.nearTerms} : {}};
 }
+// Verse alignment (M2): the host of a broadcast room fetches the outline's Recovery Version verses from the private
+// store; a final caption that reads one of them shows the verse text and its reference (verse-align.js).
+let verseState = {key: '', passages: [], count: 0, error: ''};
+function verseQuery() {
+  const outline = currentOutline();
+  if (mode !== 'host' || !room?.hostToken || !serverVerses || !outline?.refs.length) return null;
+  const refs = [], seen = new Set();
+  let total = 0;
+  for (const r of outline.refs) {
+    const to = Math.min(r.to, r.verse + 59), ref = `${r.book}${r.chapter}:${r.verse}${to > r.verse ? '-' + to : ''}`;
+    if (seen.has(ref) || total + to - r.verse + 1 > 300) continue;
+    seen.add(ref); refs.push(ref); total += to - r.verse + 1;
+  }
+  return {key: `${room.id}|${refs.join(',')}`, refs};
+}
+async function ensureVerses() {
+  const query = verseQuery();
+  if (!query) { verseState = {key: '', passages: [], count: 0, error: ''}; return; }
+  if (verseState.key === query.key) return verseState.loading;
+  const state = verseState = {key: query.key, passages: [], count: 0, error: ''};
+  state.loading = (async () => {
+    try {
+      await loadPinyinData();
+      const verses = [];
+      for (let i = 0; i < query.refs.length; i += 80) {
+        const params = new URLSearchParams({room: room.id, refs: query.refs.slice(i, i + 80).join(',')});
+        const response = await fetch('/api/verses?' + params, {headers: {Authorization: 'Bearer ' + room.hostToken}});
+        if (!response.ok) throw new Error(String(response.status));
+        verses.push(...(await response.json()).verses);
+      }
+      if (verseState === state) { state.passages = preparePassages(verses); state.count = verses.length; }
+    } catch { if (verseState === state) state.error = '經文暫時無法取得，字幕照常顯示。'; }
+    if (verseState === state) showOutlineSummary();
+  })();
+  return state.loading;
+}
+function alignVerses(text) {
+  if (!$('verseAlign').checked || !verseState.passages.length) return text;
+  const aligned = alignCaption(text, verseState.passages);
+  return aligned ? `${aligned.text}（${aligned.label}）` : text;
+}
 function correctCaption(text, {glossary, terms, options}) {
   const exact = correctText(text, glossary);
   return $('phonetic').checked ? phoneticCorrect(exact, terms, options).text : exact;
@@ -277,7 +319,7 @@ function beginRecognition(run) {
       if (result.isFinal) {
         if (completedResults.has(i)) continue;
         completedResults.add(i);
-        if (whisper) whisper.preview += text; else sendCaption(text, true);
+        if (whisper) whisper.preview += text; else sendCaption(alignVerses(text), true);
       } else if (wantsAudio) interim += text;
     }
     if (whisper) interim = whisper.preview + interim;
@@ -361,7 +403,7 @@ function deliverWhisper(state, item) {
     // Whisper may repeat itself on noise or music: the same longer line twice in a row is shown once.
     if (item.text && !(item.text.length >= 6 && item.text === state.lastText)) {
       state.lastText = item.text;
-      sendCaption(correctCaption(item.text, captionCorrection()), true);
+      sendCaption(alignVerses(correctCaption(item.text, captionCorrection())), true);
     }
     state.preview = '';  // the preview of this stretch is replaced by the recognized caption
     return;
@@ -477,6 +519,7 @@ function connectRoom() {
       const wasRetry = retryCount > 0; retryCount = 0;
       setHistory(Array.isArray(msg.history) ? msg.history : []); setInterim(msg.interim || '');
       saveSession(); updateUI();
+      if (role === 'host') ensureVerses();
       message(wasRetry && role === 'host' ? '房間已重新連線，請按「開始收音」繼續廣播。' : '', 'info');
       if (mode === 'viewer') $('joinPanel').hidden = true;
     }
@@ -719,6 +762,18 @@ try {
 const oldDefault = defaultGlossary.map(pair => pair.join('=')).join('\n');
 $('glossary').value = savedGlossary == null || savedGlossary.trim() === oldDefault ? startingGlossary.map(pair => pair.join('=')).join('\n') : savedGlossary;
 
+function verseStatus() {
+  if (!serverVerses) return '此網站沒有經文資料，讀經時不換成經文';
+  if (mode !== 'host') return '讀經時換成恢復本經文：需在廣播房間（房主）使用';
+  if (verseState.error) return verseState.error;
+  if (verseState.count) return `已載入綱要的經文 ${verseState.count} 節，讀經時換成恢復本原文`;
+  return '正在載入綱要的經文…';
+}
+$('verseAlign').onchange = () => {
+  try { localStorage.setItem('verseAlign', $('verseAlign').checked ? 'on' : 'off'); } catch {}
+  showOutlineSummary();
+};
+try { $('verseAlign').checked = localStorage.getItem('verseAlign') !== 'off'; } catch {}
 // 本場綱要: saved in this browser only (never sent anywhere); the summary shows what the captions will use.
 function showOutlineSummary() {
   const text = $('outline').value;
@@ -734,8 +789,10 @@ function showOutlineSummary() {
     outline.title ? `篇題：${outline.title}` : '沒有找到篇題（第一行或「第X篇」後面的文字）',
     `經節 ${outline.refs.length} 處`,
     outline.known.length ? `綱要裏的專名 ${outline.known.length} 個（讀音相近也會改正）：${list(outline.known)}` : '綱要裏沒有內建專名',
-    outline.terms.length ? `本場新詞 ${outline.terms.length} 個：${list(outline.terms)}` : '沒有新詞'
+    outline.terms.length ? `本場新詞 ${outline.terms.length} 個：${list(outline.terms)}` : '沒有新詞',
+    ...(outline.refs.length && $('verseAlign').checked ? [verseStatus()] : [])
   ].join('；') + '。';
+  ensureVerses();
 }
 let outlineTimer;
 $('outline').oninput = () => {
@@ -821,7 +878,10 @@ try {
 if ($('outline').value.trim()) showOutlineSummary(); else $('outlineSummary').textContent = '未輸入綱要。';
 
 async function checkServerSpeech() {
-  try { serverSpeech = (await (await request('/api/health')).json()).transcribe === true; } catch { serverSpeech = false; }
+  try {
+    const health = await (await request('/api/health')).json();
+    serverSpeech = health.transcribe === true; serverVerses = health.verses === true;
+  } catch { serverSpeech = false; serverVerses = false; }
   $('engine').querySelector('[value=whisper]').disabled = !serverSpeech;
   if (!serverSpeech) { $('engine').value = 'chrome'; $('engineHint').textContent = '此網站目前只提供 Chrome 即時辨識。'; }
 }

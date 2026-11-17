@@ -73,6 +73,20 @@ function looseReadings(accepted) {
   }
   return loose;
 }
+/**
+ * Sound keys of the Chinese chars in text, for comparing a caption with a verse (verse-align.js):
+ * [{index, key}] where key is the char's most common reading without tone, after the Taiwan Mandarin mergers.
+ * Empty until the pinyin table is loaded.
+ */
+export function soundKeys(text) {
+  if (!readings) return [];
+  const keys = [];
+  Array.from(text).forEach((c, index) => {
+    const syllable = readings.primary.get(c);
+    if (syllable) keys.push({index, key: merged(syllable)});
+  });
+  return keys;
+}
 /** Same syllable ignoring tone, or the same after the Taiwan Mandarin mergers (shen/sheng, sa/sha, lan/nan). */
 export function soundsNear(a, b) {
   return Boolean(a && b) && (toneless(a) === toneless(b) || merged(a) === merged(b));
