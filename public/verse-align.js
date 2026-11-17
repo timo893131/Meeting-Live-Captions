@@ -1,7 +1,9 @@
 // Verse alignment (spec-large-meeting.md M2): when a caption is the speaker reading a verse of this meeting's
-// outline, show the Recovery Version text instead of the recognizer's guess, and mark the verse (弗一23).
-// Captions and verses are compared by sound (soundKeys: no tone, Taiwan mergers), with local alignment, so a caption
-// like 「我們來讀二十二節，將萬有服在祂的腳下」 only has its reading part replaced. When unsure, nothing changes.
+// outline, show the Recovery Version characters instead of the recognizer's same-sound guesses, and mark the verse
+// (弗一23). Captions and verses are compared by sound (soundKeys: no tone, Taiwan mergers), with local alignment, so a
+// caption like 「我們來讀二十二節，將萬有服在祂的腳下」 only has its reading part changed. Only chars that sound the same
+// take the verse's char (話行 for 畫形, 祂 for 他) and its punctuation; a char the speaker said differently (an older
+// wording, 「可喜悅」 for 「可喜愛」) stays, and verse words the speaker left out are not added. When unsure, nothing changes.
 import {soundKeys} from './phonetic.js';
 
 export const MIN_CHARS = 8;         // at least this many Chinese chars of the caption must match a verse
@@ -68,14 +70,16 @@ function localAlign(a, b) {
   }
   if (!best) return null;
   let i = Math.floor(bestAt / width), j = bestAt % width, matches = 0, misses = 0, run = 0, longestRun = 0;
-  const endA = i - 1, endB = j - 1;
+  const endA = i - 1, endB = j - 1, ops = [];
   while (i > 0 && j > 0 && from[i * width + j]) {
     const move = from[i * width + j];
     const hit = move === 1 && a[i - 1].key === b[j - 1].key;
     if (hit) { matches++; run = 0; } else { misses++; longestRun = Math.max(longestRun, ++run); }
+    // hit: same sound; miss: both have a char, different sounds; caption / verse: only one side has the char
+    ops.push(move === 1 ? {type: hit ? 'hit' : 'miss', ci: i - 1, vi: j - 1} : move === 2 ? {type: 'caption', ci: i - 1} : {type: 'verse', vi: j - 1});
     if (move === 1) { i--; j--; } else if (move === 2) i--; else j--;
   }
-  return {score: best, a: [i, endA], b: [j, endB], matches, misses, longestRun};
+  return {score: best, a: [i, endA], b: [j, endB], matches, misses, longestRun, ops: ops.reverse()};
 }
 
 /**
@@ -96,17 +100,33 @@ export function alignCaption(text, passages, {minChars = MIN_CHARS, minIdentity 
   const captionLength = found.a[1] - found.a[0] + 1, verseLength = found.b[1] - found.b[0] + 1;
   if (captionLength < minChars || found.matches / Math.max(captionLength, verseLength) < minIdentity) return null;
   if (found.longestRun > maxRun || found.misses > Math.floor(Math.max(captionLength, verseLength) / perMiss)) return null;
-  const chars = Array.from(text);
+  const chars = Array.from(text), verseChars = Array.from(passage.text);
   const start = keys[found.a[0]].index, end = keys[found.a[1]].index;
-  const verseChars = Array.from(passage.text);
-  const from = passage.keys[found.b[0]].index;
-  let to = passage.keys[found.b[1]].index + 1;
-  const trailing = verseChars.slice(to).join('').match(TRAILING);
-  if (trailing) to += Array.from(trailing[0]).length;
-  // Drop the caption's own punctuation right after the replaced part when the verse brings its own.
+  // Rebuild the matched part from the caption's chars: same-sound chars become the verse's, with the verse's
+  // punctuation between two of them; everything else is the caption's own.
+  const out = [];
+  let previous = null;
+  for (const op of found.ops) {
+    if (op.type === 'verse') continue;
+    if (previous) {
+      const between = previous.type === 'hit' && op.type === 'hit' && op.vi === previous.vi + 1
+        ? verseChars.slice(passage.keys[previous.vi].index + 1, passage.keys[op.vi].index)
+        : chars.slice(keys[previous.ci].index + 1, keys[op.ci].index);
+      out.push(...between);
+    }
+    out.push(op.type === 'hit' ? verseChars[passage.keys[op.vi].index] : chars[keys[op.ci].index]);
+    previous = op;
+  }
+  // The verse's punctuation after the last matched char replaces the caption's own there.
   let after = end + 1;
-  if (trailing) while (after < chars.length && TRAILING.test(chars[after])) after++;
-  const replaced = chars.slice(0, start).join('') + verseChars.slice(from, to).join('') + chars.slice(after).join('');
+  if (previous?.type === 'hit') {
+    const trailing = verseChars.slice(passage.keys[previous.vi].index + 1).join('').match(TRAILING);
+    if (trailing) {
+      out.push(...Array.from(trailing[0]));
+      while (after < chars.length && TRAILING.test(chars[after])) after++;
+    }
+  }
+  const replaced = chars.slice(0, start).join('') + out.join('') + chars.slice(after).join('');
   const label = verseLabel(passage.book, passage.chapter, passage.keys[found.b[0]].verse, passage.keys[found.b[1]].verse);
   return {text: replaced, label, identity: Number((found.matches / Math.max(captionLength, verseLength)).toFixed(3))};
 }

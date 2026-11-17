@@ -30,6 +30,15 @@ test('a caption reading a verse becomes the verse text; only the reading part is
   assert.equal(across.label, '弗六1～2');
 });
 
+test('only same-sound chars take the verse; what the speaker said differently or left out stays as said', () => {
+  loadPinyin(data);
+  // Made-up "verse"; the speaker reads an older wording (喜悅 for 喜愛) and leaves out 歸.
+  const passages = preparePassages([{book: '賽', chapter: 2, verse: 16, text: '他施的船隻，並一切可喜愛的工藝品，都歸給城中的眾人。'}]);
+  const read = alignCaption('踏實的船隻並一切可喜悅的公義品都給城中的眾人', passages);
+  assert.equal(read.text, '他施的船隻，並一切可喜悅的工藝品，都給城中的眾人。');
+  assert.equal(read.label, '賽二16');
+});
+
 test('unsure or unrelated captions stay as they are', () => {
   loadPinyin(data);
   const passages = preparePassages(VERSES);
