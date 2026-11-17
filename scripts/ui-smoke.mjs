@@ -464,7 +464,10 @@ test('failed room creation restores personal controls and leaves no saved room',
 
 test('connection retries stop at the limit and offer a manual recovery action', async t => {
   const {page} = await fixture(t);
-  await page.clock.install();
+  // install() alone lets fake time flow at real speed, so retries would advance during the real waits below;
+  // pause it so only runFor moves page time.
+  await page.clock.install({time: new Date('2026-01-01T00:00:00Z')});
+  await page.clock.pauseAt(new Date('2026-01-01T00:00:01Z'));
   await page.evaluate(() => {
     window.__socketAttempts = 0;
     window.WebSocket = class {
@@ -479,6 +482,11 @@ test('connection retries stop at the limit and offer a manual recovery action', 
   });
   await page.locator('#host').click();
   await expect(page.locator('#sharePanel')).toBeVisible();
+  // #sharePanel shows before loadQR's real /api/qr fetch resolves, and connectRoom only runs after it.
+  // Running the clock earlier would fire request()'s 10 s abort (or shift the retry schedule), so wait
+  // for the first socket; its open/close callbacks use the paused page.clock timers and wait for runFor.
+  await expect.poll(() => page.evaluate(() => window.__socketAttempts)).toBe(1);
+  await expect(page.locator('#status')).toHaveText('房間連線中');
   await page.clock.runFor(20000);
   await expect(page.locator('#status')).toHaveText('房間未連線');
   await expect(page.locator('#reconnect')).toBeVisible();
