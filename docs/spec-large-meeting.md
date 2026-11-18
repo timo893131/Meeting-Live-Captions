@@ -68,6 +68,8 @@
   - validation：另選約 2% 的書卷章節／篇章（整篇保留，不與 train 共用來源）。
 - manifest 沿用 `docs/cloud-training.md` 格式；`scripts/cloud_training_data.py` 的權利檢查新增明確類別 `license_status: "owner_internal_decision"`、`rights_evidence_ref: "docs/spec-large-meeting.md#2"`，**不可**標成 `approved`，也不移除檢查。
 - 產出：Drive `meeting-live-captions/data/twgbr-v1/`（音訊、manifests、資料報告：時數、段數、對齊分布、hash）。預估可用數十小時以上，以實際報告為準。
+- 實作（2026-11-18）：`scripts/build_twgbr_training_data.py`（plan → transcribe → segment，可續跑）＋ Colab `notebooks/twgbr_training_data.ipynb`（先 `TRIAL` 每種來源 5 個錄音、抽聽，再全部）。Whisper large-v3-turbo（與開發集同一個固定版本）產生逐字時間 → rapidfuzz 字元對齊 → 只在「停頓（文字有標點時 ≥0.08 秒，否則 ≥0.25 秒）且前後各 2 字吻合」處切段 → 標籤是原文（含標點）。另檢查每秒 1.5–9 字、至少 8 字；validation 與 train 文字完全相同的片段從 validation 移除。生命讀經預設先用 120 篇（`--life-study-messages`）。
+- 標籤類別：出版文字不是人工逐字稿，rows 標 `transcript_status: "source_text_aligned"`（附 `alignment_cer`、`alignment_max_cer`）、`local_reference_verified: false`、`speaker_id: null`（講員未知，分割以錄音為單位，報告註明講員隔離未證明）。`cloud_training_data.py` 只在 train／validation 接受此類別（CER ≤ 自己來源門檻且 ≤15%），封存 test 仍須 `human_verified`。
 
 ### M4 微調（約 1–2 週，Colab 免費 T4）—— Skill：speech-finetuning
 - 基礎模型：`openai/whisper-large-v3-turbo`（固定 revision）＋LoRA（q/k/v/out 與 fc，rank 32 起）；FP16、gradient checkpointing、batch 4 × accumulation 8 起；checkpoint 每 200 步存 Drive、可續跑（Colab 會斷線）。T4 跑不動時改 medium，再不行 small。
