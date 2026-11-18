@@ -1,7 +1,7 @@
 # 工作卡：大型聚會最高準確度（綱要校正＋微調 Whisper）
 
 - 任務 ID／日期：2026-11-16-large-meeting-accuracy
-- 狀態：in progress（M0 同音放寬第 3 輪仍 unrun；M1、M2 已上線；M3 程式完成，待 Colab 試跑）
+- 狀態：in progress（M0 同音放寬第 3 輪仍 unrun；M1、M2 已上線；M3 試跑第 1 次完成、已修正，待重跑試跑）
 - 規格：[../spec-large-meeting.md](../spec-large-meeting.md)（目標、使用者決策、里程碑、契約、驗收門檻、風險）
 - 主分類：speech-finetuning；次分類依里程碑：meeting-ui-ux、meeting-realtime、speech-data-preparation、speech-evaluation、meeting-verification-release。
 - 基準：main 1e04c38（正式網站）；開發分支 `claude/peaceful-keller-kbipya`（PR #16）；MEET 網站條件 CER 14.49%、專名 93/124。
@@ -14,7 +14,7 @@
 | M0 收尾（同音放寬第 3 輪、PR #16） | 2026-11-16：Drive 最新結果 `20261114-135356-near` 是**第 2 輪**（早於第 3 輪 commit 121384b；正確全文多改 664 處）。第 3 輪 unrun。`test_colab_notebook` 既存失敗已修（套用 b316493）。 | 使用者說已跑，但 2026-11-16 Drive 上找不到新的 `*-near` 結果（最新仍是第 2 輪）→ 請使用者確認第 4、5 格是否有錯誤 |
 | M1 綱要輸入與本場詞表 | 實作完成（b926ac6）：`public/outline.js`、設定「本場綱要」、`evaluate_meet.py --outline`；綱要轉換見 [../outline-conversion.md](../outline-conversion.md) | **已上線**（PR #17 合併 28c75a7，2026-11-16 正式網址驗證通過） | M2 |
 | M2 經文對齊 | 第一步已上線（PR #21）；第二步開發集第 3 輪通過「不改壞」標準（使用者 2026-11-17 決定），PR #22 合併；2026-11-18 正式網址驗證通過 | M3 |
-| M3 訓練資料 | 2026-11-18 程式完成：`scripts/build_twgbr_training_data.py`、`notebooks/twgbr_training_data.ipynb`、資料 gate 新增 `owner_internal_decision`／`source_text_aligned` 類別；合成資料測試通過；真實資料 unrun | 使用者在 Colab 試跑（`TRIAL = True`）→ 讀 `reports/data-report.md`、抽聽 → 全部執行 |
+| M3 訓練資料 | 程式完成（cd0acf9）；2026-11-18 試跑第 1 次（每種來源 5 個錄音）後修正（089e2c2）：改以讀音對齊與計 CER、詩篇 2–150 篇沒有經文（標題是「篇」）、重切時刪除舊片段 | 使用者重跑試跑（轉寫結果沿用，只重切）→ 讀報告、抽聽 → 全部執行 |
 | M4 微調 | 未開始 | — |
 | M5 Modal 部署 | 未開始 | 使用者申請 Modal |
 | M6 MEET 驗收與彩排 | 未開始 | — |
@@ -38,7 +38,8 @@
 | M2 經文對齊開發集（第 3 輪） | 同上 | 恢復本朗讀：換 667 段、變差 0、CER 12.55%→6.06%（修好 1132／改壞 2）；生命讀經：換 66 段、變好 22／一樣 42／變差 2（97%；同音舊措辭）、經文對齊修好 27／改壞 3；使用者決定以不改壞標準上線 | a85cf7c |
 | M2 經文對齊（正式網址） | 3c62028：靜態檔（`/`、app.js、verse-align.js、outline.js、phonetic.js、bible-abbreviations.js、style.css）與 main 一致；`smoke-cloudflare`（`CAPTION_TEST_VERSE=弗1:23`）2 passed；瀏覽器（Playwright，模擬 Chrome 語音，非真人收音）：房主貼綱要（讀經 弗一22～23）→ 載入經文 2 節；朗讀弗一23 無標點且含同音錯字 2 處（祂→他、豐→風）→ 房主與觀眾（邀請連結）都顯示恢復本原文＋「（弗一23）」；一般句子不變、不加經節；觀眾看不到綱要與設定；桌面 1280／手機 390 無橫向捲動；無頁面錯誤；測試房間已刪除（200） | passed | 3c62028 |
 | M3 資料管線（合成資料） | `.venv/bin/python -m unittest test.test_twgbr_training_data test.test_cloud_training_data test.test_colab_notebook`：對齊／切段（含講員插話不進標籤、短停頓只在標點處切）、計畫排除開發集與多音檔、manifest 通過 gate、gate 拒絕錯誤權利依據／超過門檻／封存 test 用原文標籤、續跑不重做、筆記本未執行且固定版本 | passed（21） | cd0acf9 |
-| M3 真實資料 | Colab `twgbr_training_data.ipynb` | unrun | cd0acf9 |
+| M3 試跑第 1 次 | Colab `twgbr_training_data.ipynb`（TRIAL，各 5 個錄音） | 執行成功：恢復本音訊 0.47 小時→片段 0.24 小時（原文覆蓋 55.5%，對齊 CER 平均 5.7%）；生命讀經 2.0→1.21 小時（覆蓋 60.9%，CER 6.1%）；退回 29 段（CER）；排除：開發集 20＋16、詩篇 149 章（**錯誤：沒有經文**）、生命讀經篇數上限 1,848 | cd0acf9 |
+| M3 讀音對齊（本機重算試跑的轉寫結果） | 士師記 6 章：覆蓋 71%→98%、退回 5→0、對齊 CER（讀音）0–1%；出埃及記生命讀經 29 篇：覆蓋 79%→85%；標籤是原文（民書記→民數記、進池→浸池）；`unittest` 13＋gate 4＋notebook 4 passed | passed（本機重算；Colab 重跑 unrun） | 089e2c2 |
 | 範例綱要 OCR | Colab `outline_ocr.ipynb` | **passed**：12 篇與篇題全對、無警告；經文 911 節 OCR 錯字率 0.27%（含印刷用字差異 1.06%） | 5eb91f6 |
 | Colab 筆記本測試 | `test.test_colab_notebook` | passed（6） | 2026-11-16 |
 
