@@ -1,5 +1,5 @@
 """M3 builder (scripts/build_twgbr_training_data.py) on synthetic data: no real audio, text or model.
-Needs rapidfuzz, numpy, opencc-python-reimplemented, beautifulsoup4 (.venv); skipped otherwise."""
+Needs rapidfuzz, numpy, opencc-python-reimplemented, beautifulsoup4, pypinyin (.venv); skipped otherwise."""
 import array
 import copy
 import importlib.util
@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT/'scripts'))
-MISSING = [name for name in ('rapidfuzz', 'numpy', 'opencc', 'bs4') if importlib.util.find_spec(name) is None]
+MISSING = [name for name in ('rapidfuzz', 'numpy', 'opencc', 'bs4', 'pypinyin') if importlib.util.find_spec(name) is None]
 
 if not MISSING:
     import numpy as np
@@ -48,12 +48,25 @@ def speech(phrases, converter_input=lambda t: t):
 
 @unittest.skipIf(MISSING, f'needs {MISSING}')
 class AlignmentTests(unittest.TestCase):
-    def clips(self, phrases, text, kind='bible'):
+    def clips(self, phrases, text, kind='bible', by_sound=True):
         words, total = speech(phrases)
         reference, positions = m.reference_chars(text)
         chars = m.hypothesis_chars(words)
-        match = m.align(''.join(c for c, _, _ in chars), reference)
-        return m.make_clips(chars, match, reference, text, positions, total, m.POLICY['max_cer'][kind])
+        hypothesis = ''.join(c for c, _, _ in chars)
+        keys = (m.sounds(hypothesis), m.sounds(reference)) if by_sound else None
+        match = m.align(hypothesis, reference, keys)
+        return m.make_clips(chars, match, reference, text, positions, total, m.POLICY['max_cer'][kind], m.POLICY, keys)
+
+    def test_spelling_variants_and_names_heard_by_sound_do_not_count_against_a_clip(self):
+        # 裡/裏, 他/祂, 積澱/基甸: the audio says the text; Whisper only writes it differently.
+        text = '\n'.join(['基甸在酒醡那裏打麥子，為要防備米甸人。', '耶和華的使者向基甸顯現，對他說，大能的勇士阿，耶和華與你同在。',
+                          '基甸說，主阿，耶和華若與我們同在，我們何至遭遇這一切事？祂的奇事在哪裏？'])
+        heard = [line.replace('裏', '裡').replace('基甸', '積澱').replace('祂', '他').replace('阿', '啊') for line in text.split('\n')]
+        by_chars, rejected = self.clips(heard, text, by_sound=False)
+        by_sound, _ = self.clips(heard, text)
+        self.assertTrue(rejected)  # by chars these clips look 10-15 % wrong
+        self.assertEqual(''.join(c['text'] for c in by_sound), text.replace('\n', ''))  # by sound: all of it, labelled with the text
+        self.assertTrue(all(c['alignment_cer'] == 0 and c['char_cer'] > 0.05 for c in by_sound))
 
     def test_clean_reading_becomes_5_to_30_s_clips_labelled_with_the_original_text(self):
         text = '\n'.join(VERSES)
@@ -80,7 +93,7 @@ class AlignmentTests(unittest.TestCase):
         self.assertFalse(any('弟兄' in c['whisper'] for c in clips))
 
     def test_misheard_words_count_against_the_threshold(self):
-        heard = [v.translate(str.maketrans('神光水空的', '身關睡控得')) for v in VERSES]
+        heard = [v.translate(str.maketrans('神光水暗', '人燈火明')) for v in VERSES]  # different sounds
         clean, _ = self.clips(VERSES, '\n'.join(VERSES))
         clips, rejected = self.clips(heard, '\n'.join(VERSES))
         self.assertLess(sum(c['end'] - c['start'] for c in clips), sum(c['end'] - c['start'] for c in clean))
@@ -103,6 +116,12 @@ class AlignmentTests(unittest.TestCase):
         text = '神創造天地\n起初神創造諸天與地。'
         reference, positions = m.reference_chars(text)
         self.assertEqual(m.label_text(text, positions, 0, len(reference)), '神創造天地。起初神創造諸天與地。')
+
+    def test_psalms_chapters_are_found_by_their_篇_headings(self):
+        import build_bible_dev_set as bible_dev
+        book = '\n'.join(['詩篇', '詩篇 第 1 篇', '1 不從惡人的計謀，', '詩篇 第 2 篇', '1 外邦為甚麼吼鬧，', '詩篇 第 3 篇', '1 耶和華阿，'])
+        self.assertEqual(bible_dev.chapter_text(book, '詩篇', 1), '不從惡人的計謀，')
+        self.assertEqual(bible_dev.chapter_text(book, '詩篇', 2), '外邦為甚麼吼鬧，')
 
     def test_split_is_stable_and_about_two_percent(self):
         ids = [f'rv-{b:02d}-{c:03d}' for b in range(1, 67) for c in range(1, 20)]

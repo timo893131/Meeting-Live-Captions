@@ -30,7 +30,8 @@ VERSE_RANGE = re.compile(r'[\s\u3000]+[一二三四五六七八九十百○〇]*
 def chapter_text(book_text, book_name, chapter):
     """Text of one chapter: outline titles (as read aloud, without numbering) and verse text."""
     # Match on 第 N 章 only: the site writes some headings with a variant book name (腓利比書 第 2 章).
-    heading = re.compile(r'^\S+ 第 (\d+) 章$')
+    # Psalms counts 篇, not 章 (詩篇 第 2 篇).
+    heading = re.compile(r'^\S+ 第 (\d+) [章篇]$')
     lines = []
     # Single-chapter books (腓利門書, 約翰二書…) have no 第 1 章 heading: the text follows the title lines.
     inside = chapter == 1 and not any(heading.match(l.strip()) for l in book_text.splitlines())

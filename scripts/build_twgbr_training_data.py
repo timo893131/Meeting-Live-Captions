@@ -36,7 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'scripts'))
 
-PIPELINE = 'twgbr-v1-align-1'
+PIPELINE = 'twgbr-v1-align-2'
 RATE = 16000
 KEEP = re.compile(r'[㐀-䶿一-鿿豈-﫿A-Za-z0-9]')
 PUNCTUATION = '，。；：！？、「」『』（）《》〈〉…—．,.;:!?()"\'“”‘’ 　\t'
@@ -249,11 +249,29 @@ def reference_chars(text):
     return ''.join(kept), positions
 
 
-def align(hypothesis, reference):
-    """For each hypothesis char, the reference index it equals (-1 when substituted or inserted)."""
+_SOUND = {}
+
+
+def sounds(chars):
+    """Toneless pinyin of each char (a char always gets the same reading, so the two sides compare alike);
+    non-Chinese chars stand for themselves. Spelling variants (裡/裏, 他/祂) and names heard by sound
+    (積澱/基甸) are then equal: what is compared is whether the audio says the text."""
+    from pypinyin import Style, lazy_pinyin
+    keys = []
+    for char in chars:
+        if char not in _SOUND:
+            _SOUND[char] = lazy_pinyin(char, style=Style.NORMAL)[0] if '\u3400' <= char <= '\ufaff' else char
+        keys.append(_SOUND[char])
+    return keys
+
+
+def align(hypothesis, reference, keys=None):
+    """For each hypothesis char, the reference index it equals (-1 when substituted or inserted); with
+    keys=(hypothesis_keys, reference_keys) the comparison uses those (e.g. sounds) instead of the chars."""
     from rapidfuzz.distance import Levenshtein
+    a, b = keys or (hypothesis, reference)
     match = [-1]*len(hypothesis)
-    for tag, h0, h1, r0, _ in Levenshtein.opcodes(hypothesis, reference):
+    for tag, h0, h1, r0, _ in Levenshtein.opcodes(a, b):
         if tag == 'equal':
             for k in range(h1 - h0):
                 match[h0 + k] = r0 + k
@@ -304,8 +322,10 @@ def label_text(text, positions, r0, r1):
     return piece.lstrip(PUNCTUATION)
 
 
-def make_clips(chars, match, reference, text, positions, total_seconds, max_cer, policy=POLICY):
-    """Greedy 5-30 s clips between cut points; keep those whose alignment CER <= max_cer. Returns (clips, rejected)."""
+def make_clips(chars, match, reference, text, positions, total_seconds, max_cer, policy=POLICY, keys=None):
+    """Greedy 5-30 s clips between cut points; keep those whose alignment CER <= max_cer. With keys
+    (hypothesis_keys, reference_keys) the CER is counted on them (sounds); char_cer is always the char CER.
+    Returns (clips, rejected)."""
     from rapidfuzz.distance import Levenshtein
     points = cut_points(chars, match, policy['min_gap'], policy['anchor'], punctuation_breaks(text, positions),
                         policy['min_gap_punctuation'])
@@ -326,7 +346,8 @@ def make_clips(chars, match, reference, text, positions, total_seconds, max_cer,
         e = points[best]
         r0, r1 = match[s], match[e-1] + 1
         seconds = times[e] - times[s]
-        cer = Levenshtein.distance(hypothesis[s:e], reference[r0:r1])/max(1, r1 - r0)
+        char_cer = Levenshtein.distance(hypothesis[s:e], reference[r0:r1])/max(1, r1 - r0)
+        cer = Levenshtein.distance(keys[0][s:e], keys[1][r0:r1])/max(1, r1 - r0) if keys else char_cer
         cps = (r1 - r0)/seconds
         reason = ('too_few_chars' if r1 - r0 < policy['min_chars'] else 'speech_rate' if not policy['min_cps'] <= cps <= policy['max_cps']
                   else 'alignment_cer' if cer > max_cer else None)
@@ -334,7 +355,8 @@ def make_clips(chars, match, reference, text, positions, total_seconds, max_cer,
             rejected[reason] = rejected.get(reason, 0) + 1
         else:
             clips.append(dict(start=round(times[s], 3), end=round(times[e], 3), text=label_text(text, positions, r0, r1),
-                              whisper=hypothesis[s:e], alignment_cer=round(cer, 4), reference_span=[r0, r1]))
+                              whisper=hypothesis[s:e], alignment_cer=round(cer, 4), char_cer=round(char_cer, 4),
+                              reference_span=[r0, r1]))
         i = best
     return clips, rejected
 
@@ -364,10 +386,17 @@ def segment_recording(row, archive_root, output, converter, decode=decode_audio,
             return saved
     reference, positions = reference_chars(text)
     chars = hypothesis_chars(cache['words'], converter)
-    match = align(''.join(c for c, _, _ in chars), reference)
+    hypothesis = ''.join(c for c, _, _ in chars)
+    keys = (sounds(hypothesis), sounds(reference))
+    match = align(hypothesis, reference, keys)
     max_cer = policy['max_cer'][row['kind']]
-    clips, rejected = make_clips(chars, match, reference, text, positions, cache['audio_seconds'], max_cer, policy)
+    clips, rejected = make_clips(chars, match, reference, text, positions, cache['audio_seconds'], max_cer, policy, keys)
     samples = decode(archive_root/row['audio']) if clips else None
+    folder = output/'audio'/row['id']
+    keep = {f'{row["id"]}-{n:03d}.wav' for n in range(1, len(clips) + 1)}
+    for stale in folder.glob('*.wav') if folder.is_dir() else []:  # clips of an earlier pipeline version
+        if stale.name not in keep:
+            stale.unlink()
     prefix, source = KINDS[row['kind']]
     rows = []
     for n, clip in enumerate(clips, 1):
@@ -379,7 +408,8 @@ def segment_recording(row, archive_root, output, converter, decode=decode_audio,
                          source=source, book=row['book'], book_name=row['book_name'],
                          **({'chapter': row['chapter']} if row['kind'] == 'bible' else {'message': row['message']}),
                          source_start=clip['start'], source_end=clip['end'], whisper_text=clip['whisper'],
-                         alignment_cer=clip['alignment_cer'], alignment_max_cer=max_cer,
+                         alignment_cer=clip['alignment_cer'], alignment_basis='toneless_pinyin', alignment_max_cer=max_cer,
+                         whisper_char_cer=clip['char_cer'],
                          transcript_status='source_text_aligned', local_reference_verified=False,
                          near_duplicate_review='exact_text_checked', **RIGHTS,
                          allowed_uses=['training', 'internal_evaluation'], training_ready=row['split'] == 'train',
@@ -425,6 +455,7 @@ def segment(plan_data, archive_root, output, converter, decode=decode_audio, pol
         done = [(row, result) for row, result in results if row['kind'] == kind]
         clips = [clip for _, result in done for clip in result['rows'] if clip['id'] not in dropped]
         cers = [clip['alignment_cer'] for clip in clips]
+        char_cers = [clip['whisper_char_cer'] for clip in clips]
         by[kind] = dict(recordings_planned=sum(r['kind'] == kind for r in plan_data['recordings']), recordings_transcribed=len(done),
                         audio_hours=round(sum(result['audio_seconds'] for _, result in done)/3600, 2),
                         clip_hours=round(sum(clip['duration'] for clip in clips)/3600, 2), clips=len(clips),
@@ -434,6 +465,8 @@ def segment(plan_data, archive_root, output, converter, decode=decode_audio, pol
                         recordings_without_clips=sorted(row['id'] for row, result in done if not result['rows']),
                         alignment_cer=dict(mean=round(sum(cers)/len(cers), 4) if cers else None, p50=percentile(cers, 0.5),
                                            p90=percentile(cers, 0.9), zero=sum(c == 0 for c in cers)),
+                        whisper_char_cer=dict(mean=round(sum(char_cers)/len(char_cers), 4) if char_cers else None,
+                                              p50=percentile(char_cers, 0.5), p90=percentile(char_cers, 0.9)),
                         max_cer=policy['max_cer'][kind])
     report = dict(pipeline=PIPELINE, created_at=now(), policy=policy, rights=RIGHTS, manifest_sha256=hashes, by_source=by,
                   rejected_clips=rejected, validation_dropped_same_text_as_train=len(dropped),
@@ -441,7 +474,8 @@ def segment(plan_data, archive_root, output, converter, decode=decode_audio, pol
                   splits={name: dict(clips=len(rows), hours=round(sum(r['duration'] for r in rows)/3600, 2),
                                      recordings=len({r['recording_id'] for r in rows})) for name, rows in splits.items()},
                   speaker_ids='unknown (null): speaker isolation between splits is not proven; split is by recording',
-                  labels='publisher text aligned to Whisper large-v3-turbo; not human verified',
+                  labels='publisher text aligned to Whisper large-v3-turbo by toneless pinyin; not human verified',
+                  alignment_cer='toneless-pinyin (sound) CER of the clip; whisper_char_cer is the char CER',
                   test_sets='not built here: development sets and sealed MEET stay outside these manifests')
     write_atomic(output/'reports'/'data-report.json', json.dumps(report, ensure_ascii=False, indent=1) + '\n')
     write_atomic(output/'reports'/'data-report.md', markdown_report(report))
@@ -460,12 +494,13 @@ def markdown_report(report):
     lines = [f'# TWGBR 訓練資料報告（{report["pipeline"]}，{report["created_at"]}）', '',
              '權利：owner_internal_decision（使用者 2026-11-16 內部使用決定，docs/spec-large-meeting.md 第 2 節）；只限內部，不公開散布。',
              '標籤：出版文字與 Whisper large-v3-turbo 對齊後的原文，不是人工逐字稿。', '',
-             '| 來源 | 已辨識／計畫錄音 | 音訊時數 | 保留片段 | 片段時數 | train／validation 段 | 原文覆蓋 | 對齊 CER 平均／P50／P90 | 門檻 |',
-             '| --- | --- | --- | --- | --- | --- | --- | --- | --- |']
+             '對齊 CER 以無聲調拼音（讀音）計算：寫法不同但讀音相同（裡／裏、積澱／基甸）不算錯；字元 CER 另列。', '',
+             '| 來源 | 已辨識／計畫錄音 | 音訊時數 | 保留片段 | 片段時數 | train／validation 段 | 原文覆蓋 | 對齊 CER（讀音）平均／P50／P90 | Whisper 字元 CER 平均 | 門檻 |',
+             '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |']
     for kind, s in report['by_source'].items():
         c = s['alignment_cer']
         lines.append(f'| {names[kind]} | {s["recordings_transcribed"]}／{s["recordings_planned"]} | {s["audio_hours"]} | {s["clips"]} | {s["clip_hours"]} | '
-                     f'{s["train_clips"]}／{s["validation_clips"]} | {s["reference_coverage"]:.1%} | {c["mean"]}／{c["p50"]}／{c["p90"]} | ≤{s["max_cer"]:.0%} |')
+                     f'{s["train_clips"]}／{s["validation_clips"]} | {s["reference_coverage"]:.1%} | {c["mean"]}／{c["p50"]}／{c["p90"]} | {s["whisper_char_cer"]["mean"]} | ≤{s["max_cer"]:.0%} |')
     lines += ['', f'分割：train {report["splits"]["train"]["clips"]} 段 {report["splits"]["train"]["hours"]} 小時（{report["splits"]["train"]["recordings"]} 個錄音）；'
               f'validation {report["splits"]["validation"]["clips"]} 段 {report["splits"]["validation"]["hours"]} 小時（{report["splits"]["validation"]["recordings"]} 個錄音）。'
               f'validation 與 train 文字完全相同而移除：{report["validation_dropped_same_text_as_train"]} 段。',
